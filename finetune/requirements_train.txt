@@ -1,0 +1,23 @@
+# Fine-tuning dependencies for GTX 3080 (CUDA 12.x)
+# Install with:  pip install -r requirements_train.txt
+
+# Unsloth — 2-4x faster than vanilla transformers, handles 4-bit on 10GB
+unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+unsloth_zoo
+
+# Core training stack
+transformers>=4.40.0
+trl>=0.8.6
+peft>=0.10.0
+accelerate>=0.28.0
+bitsandbytes>=0.43.0
+
+# Data
+datasets>=2.19.0
+
+# Needed for GGUF export
+gguf>=0.6.0
+protobuf
+
+# Torch — install separately FIRST with the right CUDA version:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
