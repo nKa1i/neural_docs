@@ -165,10 +165,10 @@ def run_training():
     )
 
     trainer = SFTTrainer(
-        model         = model,
-        tokenizer     = tokenizer,
-        train_dataset = dataset,
-        args          = training_args,
+        model            = model,
+        processing_class = tokenizer,
+        train_dataset    = dataset,
+        args             = training_args,
     )
 
     trainer_stats = trainer.train()
