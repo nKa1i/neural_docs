@@ -1,0 +1,129 @@
+{
+  "document": {
+    "project_overview": "DataVault — B2B SaaS-платформа для аналитики данных в реальном времени.",
+    "goals": [
+      {
+        "text": "Заменить Excel-отчёты дашбордами с авто-обновлением каждые 5 минут",
+        "source": "concept_notes.txt, [3]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Войти на рынок B2B аналитики для среднего и крупного бизнеса",
+        "source": "concept_notes.txt, [2]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "requirements": [
+      {
+        "text": "Стриминг данных через Apache Kafka",
+        "source": "architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "OLAP на ClickHouse 23.8",
+        "source": "architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "SOC 2 Type II compliance",
+        "source": "architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Шифрование AES-256 at rest",
+        "source": "architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "technical_solution": {
+      "text": "FastAPI + Kafka + ClickHouse + PostgreSQL, деплой AWS EKS",
+      "source": "architecture.md",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "architecture": {
+      "text": "Микросервисная архитектура, AWS EKS (Kubernetes), React 18 фронтенд",
+      "source": "architecture.md",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "team": [
+      {
+        "text": "CTO",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "3 бэкенд-разработчика",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 фронтенд-разработчик",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 DevOps",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 аналитик данных",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "timeline": {
+      "text": "Публичная бета через 9 месяцев",
+      "source": "concept_notes.txt, [5]",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "budget": {
+      "text": "$150 000 ангельский раунд",
+      "source": "budget_draft.txt, [1]",
+      "has_conflict": true,
+      "conflict_details": "Конфликт: concept_notes.txt, [6] — $99/месяц базовый план; budget_draft.txt, [5] — $149/месяц по результатам custdev; config.json — pricing_basic_usd: 149"
+    },
+    "risks": [
+      {
+        "text": "ClickHouse — сложная операционная поддержка",
+        "source": "architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Kafka избыточна при < 1000 RPS, рассмотреть Redis Streams",
+        "source": "architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ]
+  },
+  "metadata": {
+    "model_name": "Local GPU Map-Reduce (meta-llama-3-8b-instruct)",
+    "llm_calls": 7,
+    "total_tokens": 5000,
+    "duration_ms": 17000,
+    "conflicts_found": 1
+  },
+  "trace": {
+    "steps": [
+      "Парсинг файлов",
+      "Map: Извлечение фактов (обработано файлов: 6)",
+      "Reduce: Сборка JSON"
+    ]
+  }
+}

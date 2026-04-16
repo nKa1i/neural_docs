@@ -1,0 +1,10 @@
+{
+  "project": "MindMapAI",
+  "model_primary": "gpt-4o-api",
+  "model_fallback": "mistral-7b-local",
+  "subscription_price_usd": 14.99,
+  "max_nodes_per_map": 200,
+  "export_formats": ["json", "markdown", "png"],
+  "backend": "FastAPI",
+  "frontend": "Next.js 14"
+}

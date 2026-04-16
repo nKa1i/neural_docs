@@ -1,0 +1,111 @@
+{
+  "document": {
+    "project_overview": "Проект NeonPhantom — Action-игра с техно-магией, киберпанком и фэнтези.",
+    "goals": [
+      {
+        "text": "Сделать боевую систему очень хардкорной",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Вселиться в врагов и использовать их способности",
+        "source": "concept_notes.txt, [3]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "requirements": [
+      {
+        "text": "Боевая система очень хардкорная (смерть с одного удара)",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "3D-художник на аутсорс",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Движок: Godot 4.2 + GDScript/C#",
+        "source": "config.json",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "technical_solution": {
+      "text": "Godot 4.2, GDScript + C#, сборка через GitHub Actions",
+      "source": "config.json",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "architecture": {
+      "text": "Архитектура: синглплеер, без серверной части",
+      "source": "budget_draft.txt, [3]",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "team": [
+      {
+        "text": "Я (кодер/геймдизайнер)",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "3D-художник на аутсорс",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "timeline": {
+      "text": "8 месяцев",
+      "source": "concept_notes.txt, [6] и [8]",
+      "has_conflict": true,
+      "conflict_details": "Конфликт: concept_notes.txt, [6] — 8 месяцев; concept_notes.txt, [8] — перенос на 12 месяцев при задержке ассетов"
+    },
+    "budget": {
+      "text": "500 000 тенге из личных накоплений",
+      "source": "budget_draft.txt, [4]",
+      "has_conflict": true,
+      "conflict_details": "Конфликт: budget_draft.txt, [4] — 500 000 тенге; budget_draft.txt, [5] — 700 000 тенге после уточнения у художника"
+    },
+    "risks": [
+      {
+        "text": "Враги наносят высокий урон — баланс требует тщательного тестирования",
+        "source": "mechanics.md, [2]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Магические нити для притягивания к объектам — сложность реализации",
+        "source": "mechanics.md, [1]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Задержка 3D-ассетов сдвигает релиз до 12 месяцев",
+        "source": "concept_notes.txt, [8]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ]
+  },
+  "metadata": {
+    "model_name": "Local GPU Map-Reduce (meta-llama-3-8b-instruct)",
+    "llm_calls": 4,
+    "total_tokens": 2800,
+    "duration_ms": 10200,
+    "conflicts_found": 2
+  },
+  "trace": {
+    "steps": [
+      "Парсинг файлов",
+      "Map: Извлечение фактов (обработано файлов: 3)",
+      "Reduce: Сборка JSON"
+    ]
+  }
+}

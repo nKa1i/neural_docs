@@ -1,0 +1,135 @@
+{
+  "document": {
+    "project_overview": "CodeReview Pro — инструмент для автоматического code review с помощью LLM (GPT-4o).",
+    "goals": [
+      {
+        "text": "1 000 активных репозиториев к концу первого года",
+        "source": "concept_notes.txt, [3]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Интеграции с GitHub, GitLab, Bitbucket",
+        "source": "concept_notes.txt, [2]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "requirements": [
+      {
+        "text": "Webhook-сервис на Go для приёма PR-событий",
+        "source": "technical_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Review Engine на Python + LangChain",
+        "source": "technical_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "GPT-4o основная, Claude 3 Haiku фолбэк",
+        "source": "technical_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Docker + Kubernetes на AWS EKS",
+        "source": "technical_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "technical_solution": {
+      "text": "Go (webhook) + Python + LangChain (review), GPT-4o, AWS EKS",
+      "source": "technical_spec.md",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "architecture": {
+      "text": "Микросервисная: webhook-сервис (Go) + review engine (Python) + notification service",
+      "source": "technical_spec.md",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "team": [
+      {
+        "text": "1 техлид",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "2 бэкенд-разработчика",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 фронтенд-разработчик",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 ML-инженер",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "timeline": {
+      "text": "Публичный запуск через 6 месяцев",
+      "source": "concept_notes.txt, [5]",
+      "has_conflict": true,
+      "conflict_details": "Конфликт: concept_notes.txt, [5] — 6 месяцев; budget_draft.txt, [6] — 8 месяцев; config.json — release_months: 8"
+    },
+    "budget": {
+      "text": "$50 000 bootstrap, расходы $42 000 за 8 месяцев",
+      "source": "budget_draft.txt, [1]",
+      "has_conflict": true,
+      "conflict_details": "Конфликт: concept_notes.txt, [6] — хранение AWS S3; budget_draft.txt, [4] — GCS; config.json — storage: GCS. Конфликт цены Pro: concept_notes $19/мес, budget_draft и config $29/мес"
+    },
+    "risks": [
+      {
+        "text": "Стоимость LLM API растёт линейно с числом PR",
+        "source": "technical_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Латентность review > 60 сек для больших PR",
+        "source": "technical_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Rate limits GitHub API при высокой нагрузке",
+        "source": "technical_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Конфликт хранилища: S3 (concept_notes) vs GCS (budget_draft, config.json)",
+        "source": "config.json",
+        "has_conflict": true,
+        "conflict_details": "Конфликт: concept_notes.txt, [6] — AWS S3; budget_draft.txt, [4] — GCS; config.json — storage: GCS"
+      }
+    ]
+  },
+  "metadata": {
+    "model_name": "Local GPU Map-Reduce (meta-llama-3-8b-instruct)",
+    "llm_calls": 5,
+    "total_tokens": 3650,
+    "duration_ms": 12900,
+    "conflicts_found": 3
+  },
+  "trace": {
+    "steps": [
+      "Парсинг файлов",
+      "Map: Извлечение фактов (обработано файлов: 4)",
+      "Reduce: Сборка JSON"
+    ]
+  }
+}

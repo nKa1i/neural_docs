@@ -1,0 +1,10 @@
+{
+  "project": "ArcadeForge",
+  "engine": "Unity 2023 LTS",
+  "language": "C#",
+  "platforms": ["iOS", "Android"],
+  "architecture": "client-server",
+  "server_provider": "Photon",
+  "min_ios": "14.0",
+  "min_android_api": 26
+}

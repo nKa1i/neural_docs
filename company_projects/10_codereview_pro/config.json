@@ -1,0 +1,10 @@
+{
+  "project": "CodeReviewPro",
+  "primary_llm": "gpt-4o",
+  "fallback_llm": "claude-3-haiku",
+  "storage": "GCS",
+  "storage_retention_days": 30,
+  "backend_lang": "Go + Python",
+  "price_pro_usd": 29,
+  "release_months": 8
+}

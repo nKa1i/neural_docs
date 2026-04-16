@@ -1,0 +1,11 @@
+{
+  "project": "DataVault",
+  "version": "0.1.0",
+  "backend": "FastAPI",
+  "db_oltp": "PostgreSQL 15",
+  "db_olap": "ClickHouse 23.8",
+  "streaming": "Apache Kafka",
+  "cloud": "AWS",
+  "region": "eu-central-1",
+  "pricing_basic_usd": 149
+}

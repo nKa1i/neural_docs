@@ -1,0 +1,10 @@
+{
+  "project": "EcoTrack",
+  "protocol": "CoAP",
+  "broker": "AWS IoT Core",
+  "db": "TimescaleDB",
+  "retention_hot_days": 30,
+  "retention_archive_years": 1,
+  "sensors_target": 500,
+  "pilot_sensors": 50
+}

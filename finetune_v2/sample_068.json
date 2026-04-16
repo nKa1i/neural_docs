@@ -1,0 +1,135 @@
+{
+  "document": {
+    "project_overview": "HealthSync — платформа для обмена медицинскими данными между клиниками на базе HL7 FHIR R4.",
+    "goals": [
+      {
+        "text": "Подключить 20 клиник Алматы к единому реестру за 12 месяцев",
+        "source": "concept_notes.txt, [3]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "MVP: 5 клиник через 6 месяцев",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "requirements": [
+      {
+        "text": "HL7 FHIR R4 для интероперабельности",
+        "source": "concept_notes.txt, [2]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "OAuth 2.0 + SMART on FHIR аутентификация",
+        "source": "fhir_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Аудит-лог всех обращений к данным пациентов",
+        "source": "fhir_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Соответствие Закону РК «О персональных данных» и Приказу МЗ РК №907",
+        "source": "fhir_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "technical_solution": {
+      "text": "PostgreSQL 15, FHIR R4 REST API, OAuth2 + SMART on FHIR, KazCloud",
+      "source": "config.json",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "architecture": {
+      "text": "Централизованный FHIR-сервер, KazCloud (сертифицированное облако РК), PostgreSQL 15",
+      "source": "config.json",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "team": [
+      {
+        "text": "1 архитектор",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "2 бэкенд-разработчика",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 фронтенд-разработчик",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 медицинский консультант",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 QA-инженер",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "timeline": {
+      "text": "MVP через 6 месяцев, 20 клиник через 12 месяцев",
+      "source": "concept_notes.txt, [5]",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "budget": {
+      "text": "80 000 000 тенге (госконтракт Министерства здравоохранения)",
+      "source": "concept_notes.txt, [6]",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "risks": [
+      {
+        "text": "Конфликт резервного копирования: concept_notes — ежечасное (RPO=1ч), config.json — ежедневное (RPO=24ч)",
+        "source": "config.json",
+        "has_conflict": true,
+        "conflict_details": "Конфликт: concept_notes.txt, [7] — RPO=1 час, ежечасное; config.json — backup_frequency: daily, rpo_hours: 24"
+      },
+      {
+        "text": "Интеграция с 1С:Медицина (legacy) — нестандартный API",
+        "source": "fhir_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Разные версии HL7 у старых клиник (v2.x vs FHIR R4)",
+        "source": "fhir_spec.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ]
+  },
+  "metadata": {
+    "model_name": "Local GPU Map-Reduce (meta-llama-3-8b-instruct)",
+    "llm_calls": 6,
+    "total_tokens": 4350,
+    "duration_ms": 15400,
+    "conflicts_found": 1
+  },
+  "trace": {
+    "steps": [
+      "Парсинг файлов",
+      "Map: Извлечение фактов (обработано файлов: 5)",
+      "Reduce: Сборка JSON"
+    ]
+  }
+}

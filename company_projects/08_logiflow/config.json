@@ -1,0 +1,10 @@
+{
+  "project": "LogiFlow",
+  "api_version": "v1",
+  "api_style": "REST",
+  "db": "PostgreSQL 15",
+  "queue": "RabbitMQ",
+  "cloud": "GCP",
+  "max_orders_per_day": 10000,
+  "release_months": 9
+}

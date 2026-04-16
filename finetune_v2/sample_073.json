@@ -1,0 +1,129 @@
+{
+  "document": {
+    "project_overview": "LogiFlow — SaaS-платформа для автоматизации цепочек поставок малого бизнеса в СНГ.",
+    "goals": [
+      {
+        "text": "Автоматизировать 80% рутинных задач (заказы, склад, доставка)",
+        "source": "concept_notes.txt, [3]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Интеграции с Kaspi.kz, 1С, Wildberries, Ozon",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "requirements": [
+      {
+        "text": "REST API v1 для всех интеграций",
+        "source": "api_design.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Webhook для Kaspi.kz и Wildberries",
+        "source": "api_design.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "PostgreSQL 15 + RabbitMQ для очередей",
+        "source": "config.json",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "OAuth 2.0 для 1С-коннектора",
+        "source": "api_design.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "technical_solution": {
+      "text": "REST API (Go/Python), PostgreSQL 15, RabbitMQ, GCP",
+      "source": "config.json",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "architecture": {
+      "text": "Монолит + очереди (RabbitMQ), GCP, REST API v1",
+      "source": "config.json",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "team": [
+      {
+        "text": "1 PM",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "2 бэкенд-разработчика",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 фронтенд-разработчик",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 QA-инженер",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "timeline": {
+      "text": "Коммерческий релиз через 7 месяцев",
+      "source": "concept_notes.txt, [6]",
+      "has_conflict": true,
+      "conflict_details": "Конфликт: concept_notes.txt, [6] — 7 месяцев; budget_draft.txt, [4] — пересмотр до 9 месяцев; config.json — release_months: 9"
+    },
+    "budget": {
+      "text": "$200 000 (венчурный раунд)",
+      "source": "budget_draft.txt, [1]",
+      "has_conflict": true,
+      "conflict_details": "Конфликт: concept_notes.txt, [7] — 50 000 заказов/сутки; budget_draft.txt, [5] — 10 000 заказов/сутки на старте; config.json — max_orders_per_day: 10000"
+    },
+    "risks": [
+      {
+        "text": "Kaspi API нестабилен: задержки до 10 секунд",
+        "source": "api_design.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Wildberries меняет API без предупреждения",
+        "source": "api_design.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Пропускная способность: concept_notes — 50 000/сутки, код — 10 000/сутки (MAX_DAILY_ORDERS)",
+        "source": "order_service.py",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ]
+  },
+  "metadata": {
+    "model_name": "Local GPU Map-Reduce (meta-llama-3-8b-instruct)",
+    "llm_calls": 5,
+    "total_tokens": 3500,
+    "duration_ms": 12400,
+    "conflicts_found": 2
+  },
+  "trace": {
+    "steps": [
+      "Парсинг файлов",
+      "Map: Извлечение фактов (обработано файлов: 4)",
+      "Reduce: Сборка JSON"
+    ]
+  }
+}

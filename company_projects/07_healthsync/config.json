@@ -1,0 +1,10 @@
+{
+  "project": "HealthSync",
+  "fhir_version": "R4",
+  "auth": "OAuth2 + SMART on FHIR",
+  "db": "PostgreSQL 15",
+  "backup_frequency": "daily",
+  "rpo_hours": 24,
+  "cloud": "KazCloud (certified)",
+  "encryption": "AES-256"
+}

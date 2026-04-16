@@ -1,0 +1,129 @@
+{
+  "document": {
+    "project_overview": "EcoTrack — IoT-платформа для мониторинга качества воздуха и воды в Алматы.",
+    "goals": [
+      {
+        "text": "Разместить 500 датчиков в Алматы к концу года",
+        "source": "concept_notes.txt, [3]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Пилот: 50 датчиков через 3 месяца",
+        "source": "concept_notes.txt, [6]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "requirements": [
+      {
+        "text": "MQTT 3.1.1 через LTE-M / NB-IoT",
+        "source": "concept_notes.txt, [4]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Хранение данных: 90 дней горячее, 5 лет архив",
+        "source": "concept_notes.txt, [7]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "Обработка порогов через AWS Lambda",
+        "source": "iot_architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "TimescaleDB для временных рядов",
+        "source": "iot_architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "technical_solution": {
+      "text": "MQTT/CoAP → AWS IoT Core → TimescaleDB, Grafana дашборд",
+      "source": "iot_architecture.md",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "architecture": {
+      "text": "IoT edge (датчики) → AWS IoT Core → TimescaleDB → Grafana",
+      "source": "iot_architecture.md",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "team": [
+      {
+        "text": "1 IoT-инженер",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 бэкенд-разработчик",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 embedded-разработчик",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      },
+      {
+        "text": "1 специалист по продажам",
+        "source": "concept_notes.txt, [5]",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ],
+    "timeline": {
+      "text": "Пилот (50 датчиков) через 3 месяца",
+      "source": "concept_notes.txt, [6]",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "budget": {
+      "text": "15 000 000 тенге (грант МЦРИАП)",
+      "source": "budget_draft.txt, [1]",
+      "has_conflict": false,
+      "conflict_details": ""
+    },
+    "risks": [
+      {
+        "text": "Конфликт протокола: concept_notes говорит MQTT, config.json указывает CoAP, SensorGateway.java использует MQTT",
+        "source": "config.json и SensorGateway.java",
+        "has_conflict": true,
+        "conflict_details": "Конфликт: concept_notes.txt, [4] — MQTT; config.json — CoAP; SensorGateway.java — MQTT в коде"
+      },
+      {
+        "text": "Конфликт хранения: concept_notes — 90 дней / 5 лет, budget_draft — 30 дней / 1 год",
+        "source": "budget_draft.txt, [4]",
+        "has_conflict": true,
+        "conflict_details": "Конфликт: concept_notes.txt, [7] — 90 дней горячее, 5 лет архив; budget_draft.txt, [4] — 30 дней горячее, 1 год архив"
+      },
+      {
+        "text": "NB-IoT покрытие вне Алматы < 60%",
+        "source": "iot_architecture.md",
+        "has_conflict": false,
+        "conflict_details": ""
+      }
+    ]
+  },
+  "metadata": {
+    "model_name": "Local GPU Map-Reduce (meta-llama-3-8b-instruct)",
+    "llm_calls": 6,
+    "total_tokens": 4150,
+    "duration_ms": 14700,
+    "conflicts_found": 2
+  },
+  "trace": {
+    "steps": [
+      "Парсинг файлов",
+      "Map: Извлечение фактов (обработано файлов: 5)",
+      "Reduce: Сборка JSON"
+    ]
+  }
+}

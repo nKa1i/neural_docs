@@ -1,0 +1,11 @@
+{
+  "project": "SwiftPay",
+  "version": "1.0.0-rc",
+  "backend_lang": "Go",
+  "db": "PostgreSQL 15",
+  "cache": "Redis 7",
+  "cloud": "Yandex Cloud",
+  "regions": ["kz-north-1"],
+  "pci_dss_level": 2,
+  "max_tx_per_day": 10000
+}

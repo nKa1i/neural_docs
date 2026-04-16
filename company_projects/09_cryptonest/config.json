@@ -1,0 +1,10 @@
+{
+  "project": "CryptoNest",
+  "blockchain": "Solana",
+  "l2": "N/A",
+  "token_symbol": "CNT",
+  "token_supply": 10000000,
+  "audit_firm": "CertiK",
+  "frontend": "Next.js + wagmi",
+  "testnet": "devnet"
+}

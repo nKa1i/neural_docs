@@ -1,0 +1,9 @@
+{
+  "project": "NeonPhantom",
+  "engine": "Godot 4.2",
+  "language": "GDScript + C#",
+  "platform": ["PC", "Steam"],
+  "architecture": "singleplayer",
+  "target_fps": 60,
+  "build_tool": "GitHub Actions"
+}
