@@ -2,6 +2,7 @@ import os
 import time
 import json
 from typing import List
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from openai import OpenAI
@@ -20,92 +21,81 @@ class LocalProvider(LLMProvider):
         self.model_name = model_name
 
     def generate_document(self, files_data: list[dict], language: str = "ru") -> dict:
-        # Language prompts
-        lang_prompts = {
-            "ru": {
-                "map_instruction": """Ты - безэмоциональный парсер текста. Твоя единственная задача - скопировать из текста все факты, цифры и требования, сохранив номер строки.
+        start_time = time.time()
+        total_tokens_used = 0
+        all_extracted_facts = ""
+
+        map_instruction = """Ты - безэмоциональный парсер текста. Твоя единственная задача - скопировать из текста все факты, цифры и требования, сохранив номер строки.
 
 ОТВЕЧАЙ СТРОГО В ФОРМАТЕ:
 [Номер строки] Факт: "цитата или точный пересказ"
 
 ВАЖНО: Обязательно извлекай все числовые значения — суммы денег, сроки в месяцах или неделях, версии, размеры команд. Каждое число должно быть отдельной строкой факта.
-Не придумывай ничего своего. Ничего не анализируй. Просто выписывай факты. Если фактов нет, пиши "Пусто".""",
-                "missing_data": "Данные отсутствуют"
-            },
-            "en": {
-                "map_instruction": """You are an emotionless text parser. Your only task is to copy all facts, numbers and requirements from the text, preserving the line number.
+Не придумывай ничего своего. Ничего не анализируй. Просто выписывай факты. Если фактов нет, пиши "Пусто"."""
 
-ANSWER STRICTLY IN FORMAT:
-[Line number] Fact: "quote or exact summary"
-
-IMPORTANT: Always extract all numeric values — money amounts, deadlines in months or weeks, versions, team sizes. Each number should be a separate fact line.
-Do not make up anything. Do not analyze anything. Just list the facts. If no facts, write "Empty".""",
-                "missing_data": "No data available"
-            },
-            "kz": {
-                "map_instruction": """Сіз - эмоциясыз мәтін талдаушысыз. Сіздің бірден бір міндетіңіз - мәтіннен барлық фактілерді, сандарды және талаптарды көшіру, жол нөмірін сақтай отырып.
-
-ҚАТЫ ОТЫРЫП ЖАУАП БЕРІҢІЗ:
-[Жол нөмірі] Факт: "дәйек немесе нақты қорытынды"
-
-МАҢЫЗДЫ: Барлық сандық мәндерді әрдайым шығарып алыңыз — ақша сомалары, ай немесе апта бойынша мерзімдер, нұсқалар, топ өлшемдері. Әрбір сан жеке факт жолы болуы керек.
-Ештеңе ойлап таппаңыз. Ештеңе талдамаңыз. Жай фактілерді тізімдеңіз. Фактілер жоқ болса, "Бос" деп жазыңыз.""",
-                "missing_data": "Деректер жоқ"
-            }
-        }
-        prompts = lang_prompts.get(language, lang_prompts["ru"])
-
-        start_time = time.time()
-        total_tokens_used = 0
-        all_extracted_facts = ""
-
-        map_instruction = prompts["map_instruction"]
-
-        for f in files_data:
+        # ── MAP phase: all files processed in parallel ────────────────────────
+        def _map_one(f):
             lines = f['content'].splitlines()
-            numbered_text = "\n".join([f"[{i+1}] {line}" for i, line in enumerate(lines)])
-            response = self.client.chat.completions.create(
+            numbered = "\n".join([f"[{i+1}] {line}" for i, line in enumerate(lines)])
+            resp = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": map_instruction},
-                    {"role": "user", "content": f"Файл: {f['filename']}\nТекст:\n{numbered_text}"}
+                    {"role": "user",   "content": f"Файл: {f['filename']}\nТекст:\n{numbered}"}
                 ],
                 temperature=0.0
             )
-            fact_summary = response.choices[0].message.content
-            total_tokens_used += response.usage.total_tokens if response.usage else 0
-            all_extracted_facts += f"\n\n--- ФАЙЛ: {f['filename']} ---\n{fact_summary}\n"
+            tokens = resp.usage.total_tokens if resp.usage else 0
+            return f['filename'], resp.choices[0].message.content, tokens
 
+        max_workers = min(len(files_data), 5)   # cap at 5 parallel calls
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            map_results = list(pool.map(_map_one, files_data))  # order preserved
+
+        for filename, fact_summary, tokens in map_results:
+            total_tokens_used += tokens
+            all_extracted_facts += f"\n\n--- ФАЙЛ: {filename} ---\n{fact_summary}\n"
+
+        # NOTE: ALL has_conflict values start as false and ALL conflict_details are empty.
+        # The model must ONLY set has_conflict=true when it finds REAL differing values
+        # in the extracted facts, and it must write REAL values — never placeholder words.
         json_template = """{
-          "project_overview": "general description",
-          "goals": [{"text": "goal description", "source": "filename, line N", "has_conflict": false, "conflict_details": ""}],
-          "requirements": [{"text": "requirement", "source": "filename, line N", "has_conflict": false, "conflict_details": ""}],
-          "technical_solution": {"text": "solution", "source": "filename, line N", "has_conflict": false, "conflict_details": ""},
-          "architecture": {"text": "architecture", "source": "filename, line N", "has_conflict": false, "conflict_details": ""},
-          "team": [{"text": "team member", "source": "filename, line N", "has_conflict": false, "conflict_details": ""}],
-          "timeline": {"text": "final deadline", "source": "filename, line N", "has_conflict": true, "conflict_details": "Conflict: file_A, [N] — deadline_A; file_B, [M] — deadline_B"},
-          "budget": {"text": "final budget", "source": "filename, line N", "has_conflict": true, "conflict_details": "Conflict: file_A, [N] — amount_A; file_B, [M] — amount_B"},
-          "risks": [{"text": "risk", "source": "filename, line N", "has_conflict": false, "conflict_details": ""}]
-        }"""
+  "project_overview": "СЮДА — краткое описание проекта из фактов",
+  "goals":            [{"text": "СЮДА — точный текст цели из фактов",        "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
+                       {"text": "СЮДА — точный текст второй цели из фактов", "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}],
+  "requirements":     [{"text": "СЮДА — точный текст требования из фактов",  "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
+                       {"text": "СЮДА — точный текст второго требования",    "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}],
+  "technical_solution":{"text": "СЮДА — технология/стек из фактов",         "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
+  "architecture":      {"text": "СЮДА — архитектурное решение из фактов",   "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
+  "team":             [{"text": "СЮДА — имя и роль участника из фактов",     "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}],
+  "timeline":          {"text": "СЮДА — конкретный срок из фактов",         "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
+  "budget":            {"text": "СЮДА — конкретная сумма из фактов",        "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
+  "risks":            [{"text": "СЮДА — точный текст риска из фактов",       "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}]
+}"""
 
-        reduce_instruction = f"""
-You are a strict JSON generator. Assemble the final document from the provided facts.
+        reduce_instruction = f"""Ты — строгий JSON-генератор. Заполни шаблон ниже, используя ТОЛЬКО текст из раздела ФАКТЫ.
 
-STRICT RULES:
-1. SOURCES: Always specify file and line (e.g., "budget_draft.txt, [4]").
-2. CONFLICT LOCALIZATION:
-   - Write money conflicts ONLY in "budget" block.
-   - Write deadline conflicts ONLY in "timeline" block.
-   - FORBIDDEN to write about budget in "requirements" or "goals".
-3. MANDATORY CONFLICT DETECTION ALGORITHM:
-   a) Before writing "budget" field, find ALL money mentions across ALL files. If amounts differ — set "has_conflict": true AND fill "conflict_details" in format: "Conflict: [file A, line N] — [amount A]; [file B, line M] — [amount B]".
-   b) Before writing "timeline" field, find ALL deadline mentions across ALL files. Compare deadlines from ALL files — having two different numeric values is a conflict regardless of context. If deadlines differ — set "has_conflict": true AND fill "conflict_details" in same format.
-   c) FORBIDDEN to leave "conflict_details" empty if "has_conflict" is true.
-4. If no data for field, write "{prompts['missing_data']}".
-5. Output must be in {language} language.
+═══ ЗАПРЕТЫ (нарушение = неверный ответ) ═══
+• ЗАПРЕЩЕНО вписывать любой текст, которого нет в ФАКТАХ.
+• ЗАПРЕЩЕНО копировать текст из шаблона — шаблон показывает только структуру, не содержание.
+• ЗАПРЕЩЕНО оставлять поле "text" пустой строкой "". Нет данных → пиши "Данные отсутствуют".
+• ЗАПРЕЩЕНО писать слова "срок_А/B", "сумма_А/B", "файл_А/B" — это технические метки, не данные.
 
-Output ONLY JSON strictly following the template below. No text before or after brackets {{ and }}.
-TEMPLATE:
+═══ КАК ЗАПОЛНЯТЬ "text" ═══
+Для каждого элемента массива (goals, requirements, team, risks):
+  — найди в ФАКТАХ строку, относящуюся к этой теме
+  — скопируй её содержание дословно в поле "text"
+  — укажи реальный файл и номер строки в "source"
+
+═══ КАК ЗАПОЛНЯТЬ КОНФЛИКТЫ ═══
+BUDGET: найди ВСЕ денежные суммы в ФАКТАХ.
+  Если найдено ≥2 разных суммы → "has_conflict": true,
+  "conflict_details": "Конфликт: РЕАЛЬНЫЙ_ФАЙЛ, [N] — РЕАЛЬНАЯ_СУММА; РЕАЛЬНЫЙ_ФАЙЛ2, [M] — РЕАЛЬНАЯ_СУММА2"
+TIMELINE: то же самое для сроков.
+Нет расхождений → "has_conflict": false, "conflict_details": ""
+
+Выведи ТОЛЬКО JSON без текста до или после.
+ШАБЛОН (каждое поле "СЮДА…" замени на реальный текст из ФАКТОВ):
 {json_template}
 """
 
@@ -125,12 +115,85 @@ TEMPLATE:
         end_idx = raw_content.rfind('}')
         clean_json = raw_content[start_idx:end_idx+1] if start_idx != -1 and end_idx != -1 else raw_content
 
+        duration_ms = int((end_time - start_time) * 1000)
+
+        # ── helpers (defined before use) ─────────────────────────────────────
+        def _sanitize_placeholders(obj):
+            """
+            Safety net: if the LLM copied template placeholder words into
+            conflict_details (e.g. 'срок_A', 'сумма_B', 'файл_A') instead of
+            real extracted values, clear the field and reset has_conflict=False.
+            Also clears has_conflict=True when conflict_details ended up empty.
+            """
+            import re
+            # Matches patterns like: срок_A  сумма_B  файл_A  срок_1
+            PLACEHOLDER = re.compile(
+                r'\b(?:срок|сумма|файл|значение|value|term)_[A-Za-zА-Яа-я0-9]{1,2}\b',
+                re.IGNORECASE
+            )
+            if not isinstance(obj, dict):
+                return
+            if 'has_conflict' in obj and 'conflict_details' in obj:
+                details = obj.get('conflict_details') or ''
+                if obj['has_conflict']:
+                    if not details.strip() or PLACEHOLDER.search(details):
+                        obj['has_conflict'] = False
+                        obj['conflict_details'] = ''
+            for val in obj.values():
+                if isinstance(val, dict):
+                    _sanitize_placeholders(val)
+                elif isinstance(val, list):
+                    for item in val:
+                        if isinstance(item, dict):
+                            _sanitize_placeholders(item)
+
+        def _sanitize_hallucinations(obj, source_corpus: str):
+            """
+            Second pass: walk every {text, source} leaf and check that at least
+            ONE meaningful word from `text` actually appears somewhere in the
+            combined extracted facts (source_corpus).  If there is zero overlap
+            the model invented the text — wipe it and mark the field clearly so
+            the UI can display it as missing rather than fabricated data.
+
+            Threshold: at least 1 word of length ≥ 4 characters must appear in
+            the corpus (case-insensitive).  Short words (prepositions, articles)
+            are skipped to avoid false positives.
+            """
+            import re
+            corpus_lower = source_corpus.lower()
+
+            def has_overlap(text: str) -> bool:
+                if not text or not text.strip():
+                    return False
+                # Skip generic fallback phrases — those are always "valid"
+                if 'отсутству' in text.lower() or 'нет данных' in text.lower():
+                    return True
+                words = re.findall(r'[а-яёa-z0-9]{4,}', text.lower())
+                return any(w in corpus_lower for w in words)
+
+            if not isinstance(obj, dict):
+                return
+            if 'text' in obj and 'source' in obj:
+                if not has_overlap(obj.get('text', '')):
+                    obj['text'] = 'Данные отсутствуют'
+                    obj['source'] = ''
+                    obj['has_conflict'] = False
+                    obj['conflict_details'] = ''
+            for val in obj.values():
+                if isinstance(val, dict):
+                    _sanitize_hallucinations(val, source_corpus)
+                elif isinstance(val, list):
+                    for item in val:
+                        if isinstance(item, dict):
+                            _sanitize_hallucinations(item, source_corpus)
+
+        # Parse JSON output (now that helpers are defined above)
         try:
             parsed_data = json.loads(clean_json)
+            _sanitize_placeholders(parsed_data)
+            _sanitize_hallucinations(parsed_data, all_extracted_facts)
         except Exception:
             parsed_data = {"error": "Llama 3 вернула невалидный JSON", "raw_output": raw_content}
-
-        duration_ms = int((end_time - start_time) * 1000)
 
         def count_conflicts(doc):
             count = 0
@@ -144,8 +207,40 @@ TEMPLATE:
                             count += 1
             return count
 
+        def _to_spec_document(rich):
+            """
+            Convert the rich {text, source, has_conflict, conflict_details} format
+            into a spec-compliant document where scalar fields are plain strings
+            and array fields are plain string lists.
+            """
+            def txt(f):
+                if isinstance(f, dict):
+                    return (f.get('text') or '').strip()
+                return (f or '').strip()
+
+            def lst(arr):
+                if not isinstance(arr, list):
+                    return []
+                return [txt(i) for i in arr if i]
+
+            return {
+                "project_overview":   rich.get("project_overview", ""),
+                "goals":              lst(rich.get("goals")),
+                "requirements":       lst(rich.get("requirements")),
+                "technical_solution": txt(rich.get("technical_solution")),
+                "architecture":       txt(rich.get("architecture")),
+                "team":               lst(rich.get("team")),
+                "timeline":           txt(rich.get("timeline")),
+                "budget":             txt(rich.get("budget")),
+                "risks":              lst(rich.get("risks")),
+            }
+
+        # Build both the spec-compliant document and the rich extended document
+        spec_document = _to_spec_document(parsed_data) if "error" not in parsed_data else parsed_data
+
         return {
-            "document": parsed_data,
+            "document":          spec_document,    # spec-compliant plain strings/lists
+            "document_extended": parsed_data,       # rich {text,source,has_conflict,...} for UI
             "metadata": {
                 "model_name": f"Local GPU Map-Reduce ({self.model_name})",
                 "llm_calls": len(files_data) + 1,
@@ -338,19 +433,11 @@ async def main_page():
     <div id="upload-screen">
         <div class="tab-bar">
             <button class="tab-btn active" onclick="switchTab('generate')">📝 Создать документ</button>
-            <button class="tab-btn" onclick="switchTab('load')">� Открыть сохраненный</button>
+            <button class="tab-btn" onclick="switchTab('load')">📂 Загрузить документ</button>
         </div>
 
         <!-- Tab 1: Generate -->
         <div id="tab-generate">
-            <div class="language-selector" style="text-align:center;margin-bottom:20px;">
-                <label style="font-size:14px;color:var(--text-muted);margin-right:10px;">Язык выходного документа:</label>
-                <select id="output-language" style="padding:8px 15px;border:1px solid var(--border);border-radius:6px;font-size:14px;background:var(--card-bg);color:var(--text-main);cursor:pointer;">
-                    <option value="ru">🇷🇺 Русский</option>
-                    <option value="en">🇬🇧 English</option>
-                    <option value="kz">🇰🇿 Қазақша</option>
-                </select>
-            </div>
             <p style="text-align:center;margin-bottom:20px;">Загрузите файлы проекта — мы извлечем структурированную информацию и найдем противоречия между документами.</p>
             <form id="upload-form">
                 <div class="upload-zone">
@@ -376,7 +463,7 @@ async def main_page():
 
             <!-- Archive browser -->
             <div class="archive-header">
-                <h3>� Библиотека примеров</h3>
+                <h3>📚 Библиотека примеров</h3>
                 <span class="archive-count" id="archive-count">загрузка...</span>
             </div>
             <input class="archive-search" type="text" id="archive-search" placeholder="🔍 Поиск по проектам..." oninput="filterArchive()">
@@ -553,15 +640,16 @@ function calculateCompletenessScore(doc) {
     fields.forEach(field => {
         const value = doc[field.key];
         if (field.isArray) {
-            if (value && value.length > 0 && value[0].text && !value[0].text.includes('отсутству')) {
-                score += field.weight;
+            if (value && value.length > 0) {
+                // Rich format: [{text: ...}]  |  Spec format: ["string", ...]
+                const first = value[0];
+                const text = (typeof first === 'object' && first !== null) ? (first.text || '') : String(first || '');
+                if (text && !text.includes('отсутству')) score += field.weight;
             }
         } else {
-            if (value && value.text && !value.text.includes('отсутству')) {
-                score += field.weight;
-            } else if (value && typeof value === 'string' && value.length > 10) {
-                score += field.weight;
-            }
+            // Rich format: {text: ...}  |  Spec format: "string"
+            const text = (value && typeof value === 'object') ? (value.text || '') : String(value || '');
+            if (text && text.length > 10 && !text.includes('отсутству')) score += field.weight;
         }
     });
 
@@ -621,9 +709,8 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
     
-    // Add selected language
-    const selectedLang = document.getElementById('output-language').value;
-    formData.append('language', selectedLang);
+    // Default language is Russian
+    formData.append('language', 'ru');
 
     try {
         const resp = await fetch('/generate_document', { method: 'POST', body: formData });
@@ -749,7 +836,9 @@ function showResult(data, isViewer, filename) {
 
     const title = document.getElementById('result-title');
     const loadAnotherBtn = document.getElementById('load-another-btn');
-    const doc = data.document || {};
+    // Use the rich extended document for UI rendering if available (spec-compliant
+    // plain-string `document` is for download/fine-tuning only)
+    const doc = data.document_extended || data.document || {};
 
     // Calculate and show completeness score
     const score = calculateCompletenessScore(doc);
@@ -781,7 +870,9 @@ function showScreen(name) {
 // RENDER RESULTS  (unchanged logic — used by both generate and viewer paths)
 // ─────────────────────────────────────────────────────────────────────────────
 function renderResults(data) {
-    const doc  = data.document  || {};
+    // Prefer rich extended document for UI (has source badges & conflict details).
+    // Plain-string spec `document` is used for download/fine-tuning.
+    const doc  = data.document_extended || data.document || {};
     const meta = data.metadata  || {};
     const container = document.getElementById('parsed-content');
     
@@ -858,7 +949,20 @@ function renderResults(data) {
     const t = labels[currentLang] || labels.ru;
 
     const makeFact = (fact, fieldName = '') => {
-        if (!fact || !fact.text) return t.no_data;
+        // Handle plain string (spec format fallback)
+        if (typeof fact === 'string') {
+            return fact && fact.length > 1 && !fact.includes('отсутству')
+                ? `<span>${fact}</span>`
+                : `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
+        }
+        if (!fact) return `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
+        // Rich format: if text is empty but source is present, show "Источник: …" hint
+        if (!fact.text || !fact.text.trim()) {
+            if (fact.source && !fact.source.includes('файл.txt')) {
+                return `<span style="color:var(--text-muted);font-style:italic;">Нет текста</span><span class="source-badge">📄 ${fact.source}</span>`;
+            }
+            return `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
+        }
         const badgeStyle = (fact.source === 'Нет источника' || (fact.source || '').includes('отсутству'))
             ? 'background:#F3F4F6;color:#6B7280;' : '';
         let html = `<span>${fact.text}</span><span class="source-badge" style="${badgeStyle}">📄 ${fact.source || '—'}</span>`;
@@ -911,8 +1015,20 @@ function renderResults(data) {
     };
 
     const makeFactList = (items) => {
-        if (!items || items.length === 0) return `<p>${t.no_data}</p>`;
-        return `<ul>${items.map(item => `<li>${makeFact(item)}</li>`).join('')}</ul>`;
+        if (!items || items.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
+        // Filter out items that are completely empty (empty string or object with empty text)
+        const nonEmpty = items.filter(item => {
+            if (typeof item === 'string') return item.trim().length > 0;
+            if (typeof item === 'object' && item !== null) {
+                // Keep items that have real text OR a real conflict to show
+                const hasText = (item.text || '').trim().length > 0;
+                const hasSource = item.source && !item.source.includes('файл.txt');
+                return hasText || hasSource || item.has_conflict;
+            }
+            return false;
+        });
+        if (nonEmpty.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
+        return `<ul>${nonEmpty.map(item => `<li>${makeFact(item)}</li>`).join('')}</ul>`;
     };
 
     // Conflict summary banner
