@@ -187,11 +187,54 @@ TIMELINE: то же самое для сроков.
                         if isinstance(item, dict):
                             _sanitize_hallucinations(item, source_corpus)
 
+        def _check_cross_field_timeline(doc):
+            """
+            The LLM only checks timeline/budget within their own field.
+            This pass looks for numeric month/week values that appear in
+            goals or risks and differ from what timeline field says —
+            then flags the timeline field as conflicted if so.
+            """
+            import re
+            if not isinstance(doc, dict):
+                return
+
+            def months_in(text):
+                """Extract all integer month/week numbers from a string."""
+                nums = set()
+                for m in re.finditer(r'(\d+)\s*(?:месяц|мес\b|недел)', text, re.IGNORECASE):
+                    nums.add(int(m.group(1)))
+                return nums
+
+            # Collect all timeline numbers from every field
+            all_nums = set()
+            for key in ('goals', 'requirements', 'risks'):
+                for item in (doc.get(key) or []):
+                    text = item.get('text', '') if isinstance(item, dict) else str(item)
+                    all_nums |= months_in(text)
+
+            timeline = doc.get('timeline')
+            if not isinstance(timeline, dict):
+                return
+            tl_nums = months_in(timeline.get('text', ''))
+
+            # If timeline field has a number AND other fields have a different number
+            conflicting = all_nums - tl_nums
+            if tl_nums and conflicting:
+                if not timeline.get('has_conflict'):
+                    other_vals = ', '.join(str(n) + ' мес.' for n in sorted(conflicting))
+                    tl_val = ', '.join(str(n) + ' мес.' for n in sorted(tl_nums))
+                    timeline['has_conflict'] = True
+                    timeline['conflict_details'] = (
+                        f"Конфликт сроков: timeline — {tl_val}; "
+                        f"другие поля — {other_vals}"
+                    )
+
         # Parse JSON output (now that helpers are defined above)
         try:
             parsed_data = json.loads(clean_json)
             _sanitize_placeholders(parsed_data)
             _sanitize_hallucinations(parsed_data, all_extracted_facts)
+            _check_cross_field_timeline(parsed_data)
         except Exception:
             parsed_data = {"error": "Llama 3 вернула невалидный JSON", "raw_output": raw_content}
 
@@ -261,7 +304,9 @@ TIMELINE: то же самое для сроков.
 # FASTAPI APP
 # ─────────────────────────────────────────────────────────────────────────────
 app = FastAPI()
-LOCAL_PC_IP = "127.0.0.1"
+# When running in Docker, LM Studio is on the host machine.
+# Set LM_STUDIO_HOST env var to override (e.g. "host.docker.internal" on Docker Desktop).
+LOCAL_PC_IP = os.environ.get("LM_STUDIO_HOST", "127.0.0.1")
 current_llm = LocalProvider(base_url=f"http://{LOCAL_PC_IP}:1234/v1")
 
 # ── Archive API ───────────────────────────────────────────────────────────────
