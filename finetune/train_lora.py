@@ -188,22 +188,32 @@ def run_gguf_export():
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import PeftModel
 
-    print("Merging LoRA adapters into base model (runs on CPU)...")
+    print("Merging LoRA adapters into base model...")
+    print("Using GPU+CPU hybrid to avoid RAM overflow.\n")
     GGUF_DIR.mkdir(parents=True, exist_ok=True)
     merged_dir = SCRIPT_DIR / "output" / "merged"
     merged_dir.mkdir(parents=True, exist_ok=True)
 
+    # device_map="auto" splits layers across GPU (10.7GB) + CPU RAM
+    # so we only need ~5GB RAM instead of the full 16GB fp16 model
     base = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         torch_dtype=torch.float16,
-        device_map="cpu",
+        device_map="auto",
+        low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
-    print("Merging LoRA weights...")
+    print("Applying LoRA weights...")
     model = PeftModel.from_pretrained(base, str(OUTPUT_DIR))
+
+    print("Merging and unloading LoRA...")
     model = model.merge_and_unload()
+
+    # Move everything to CPU for saving
+    print("Moving to CPU for saving (this takes a moment)...")
+    model = model.to("cpu")
 
     print(f"Saving merged model → {merged_dir}")
     model.save_pretrained(str(merged_dir), safe_serialization=True)
