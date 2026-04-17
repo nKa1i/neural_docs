@@ -189,35 +189,45 @@ def run_gguf_export():
     from peft import PeftModel
 
     print("Merging LoRA adapters into base model...")
-    print("Using GPU+CPU hybrid to avoid RAM overflow.\n")
+    print("Using GPU+CPU+disk offload to handle full fp16 model.\n")
     GGUF_DIR.mkdir(parents=True, exist_ok=True)
-    merged_dir = SCRIPT_DIR / "output" / "merged"
+    merged_dir  = SCRIPT_DIR / "output" / "merged"
+    offload_dir = SCRIPT_DIR / "output" / "offload_tmp"
     merged_dir.mkdir(parents=True, exist_ok=True)
+    offload_dir.mkdir(parents=True, exist_ok=True)
 
-    # device_map="auto" splits layers across GPU (10.7GB) + CPU RAM
-    # so we only need ~5GB RAM instead of the full 16GB fp16 model
     base = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         torch_dtype=torch.float16,
         device_map="auto",
+        offload_folder=str(offload_dir),   # spill overflow layers to disk
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 
     print("Applying LoRA weights...")
-    model = PeftModel.from_pretrained(base, str(OUTPUT_DIR))
+    model = PeftModel.from_pretrained(
+        base,
+        str(OUTPUT_DIR),
+        offload_folder=str(offload_dir),
+    )
 
     print("Merging and unloading LoRA...")
     model = model.merge_and_unload()
 
-    # Move everything to CPU for saving
+    # Move to CPU shard-by-shard for saving
     print("Moving to CPU for saving (this takes a moment)...")
-    model = model.to("cpu")
+    model = model.to(torch.float16)
 
     print(f"Saving merged model → {merged_dir}")
     model.save_pretrained(str(merged_dir), safe_serialization=True)
     tokenizer.save_pretrained(str(merged_dir))
+
+    # Clean up temporary disk offload files
+    import shutil
+    if offload_dir.exists():
+        shutil.rmtree(offload_dir)
 
     print("\nMerged model saved.")
     print("Load directly in LM Studio: File → Load Model → browse to:")
