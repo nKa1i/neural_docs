@@ -1,3 +1,14 @@
+# ML model outputs — never commit large binaries
+finetune/output/
+finetune/training_data.jsonl
+finetune/venv_train/
+finetune/llama.cpp/build/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
