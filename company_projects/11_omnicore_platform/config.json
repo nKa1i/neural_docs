@@ -1,0 +1,291 @@
+{
+  "project": "OmniCore Platform",
+  "codename": "Project Omega",
+  "version": "0.1.0-alpha",
+  "organization": "OmniCore Technologies LLP",
+  "registered_in": "Republic of Kazakhstan",
+  "founding_date": "2024-09-01",
+
+  "team": {
+    "total_headcount": 47,
+    "core_team": 32,
+    "contractors": 15,
+    "key_personnel": {
+      "ceo": "Artur Zhandarov",
+      "cto": "Kirill Osipov",
+      "cpo": "Maria Svetlova",
+      "chief_architect": "Denis Krasnov",
+      "ciso": "Anna Ryabova",
+      "data_science_lead": "Timur Seitov"
+    }
+  },
+
+  "architecture": {
+    "style": "microservices",
+    "pattern": "event-driven",
+    "service_count": 47,
+    "api_gateway": "Kong 3.6",
+    "service_mesh": "Istio 1.21",
+    "communication": {
+      "sync": "gRPC + REST/JSON",
+      "async": "Apache Kafka 3.7"
+    },
+    "modules": [
+      "finance-core",
+      "manufacturing-core",
+      "warehouse-management",
+      "supply-chain",
+      "hr-payroll",
+      "crm",
+      "bi-analytics",
+      "document-management",
+      "project-management",
+      "asset-management",
+      "procurement",
+      "quality-control",
+      "maintenance-management",
+      "transport-management",
+      "customs-compliance",
+      "ai-engine",
+      "notification-hub"
+    ]
+  },
+
+  "backend": {
+    "primary_language": "Go",
+    "go_version": "1.22.3",
+    "secondary_language": "Python",
+    "python_version": "3.12.4",
+    "legacy_adapters": "Java 21",
+    "frameworks": {
+      "go": ["Fiber v2.52", "GORM v2.0", "go-kit"],
+      "python": ["FastAPI 0.111", "SQLAlchemy 2.0", "Celery 5.4"],
+      "java": ["Spring Boot 3.3", "Hibernate 6.4"]
+    },
+    "build_tools": {
+      "go": "go build + goreleaser",
+      "python": "poetry 1.8",
+      "java": "Maven 3.9 + Docker multi-stage"
+    }
+  },
+
+  "frontend": {
+    "framework": "React",
+    "react_version": "18.3.1",
+    "language": "TypeScript",
+    "typescript_version": "5.4.5",
+    "meta_framework": "Next.js",
+    "nextjs_version": "14.2.5",
+    "state_management": "Zustand 4.5 + React Query 5.40",
+    "ui_library": "shadcn/ui + Radix UI",
+    "charts": "Recharts 2.12 + D3.js 7.9",
+    "bundler": "Turbopack",
+    "testing": "Vitest + Testing Library + Playwright"
+  },
+
+  "databases": {
+    "oltp": {
+      "engine": "PostgreSQL",
+      "version": "16.2",
+      "cluster": "Patroni HA (3 nodes)",
+      "connection_pool": "PgBouncer 1.22",
+      "schema_migrations": "golang-migrate"
+    },
+    "olap": {
+      "engine": "ClickHouse",
+      "version": "24.3.2",
+      "cluster": "3 shards × 2 replicas",
+      "zookeeper": "ZooKeeper 3.9"
+    },
+    "cache": {
+      "engine": "Redis",
+      "version": "7.2.5",
+      "cluster": "Redis Sentinel (3 nodes)",
+      "eviction": "allkeys-lru"
+    },
+    "search": {
+      "primary": "Elasticsearch 8.13.4",
+      "fallback": "OpenSearch 2.14"
+    },
+    "object_storage": "AWS S3 + MinIO (on-prem)",
+    "time_series": "TimescaleDB 2.15 (PostgreSQL extension)",
+    "graph": "Neo4j 5.20 (supply chain graph)"
+  },
+
+  "messaging": {
+    "primary": {
+      "engine": "Apache Kafka",
+      "version": "3.7.0",
+      "brokers": 5,
+      "replication_factor": 3,
+      "retention_hours": 168
+    },
+    "secondary": {
+      "engine": "RabbitMQ",
+      "version": "3.13.3",
+      "usage": "legacy adapter queues"
+    },
+    "schema_registry": "Confluent Schema Registry 7.6"
+  },
+
+  "ml_platform": {
+    "framework": "PyTorch",
+    "pytorch_version": "2.3.1",
+    "transformers": "HuggingFace Transformers 4.41",
+    "experiment_tracking": "MLflow 2.13",
+    "feature_store": "Feast 0.39",
+    "model_serving": "Triton Inference Server 24.05",
+    "llm_integration": {
+      "provider": "OpenAI API",
+      "model": "gpt-4o",
+      "local_fallback": "Llama 3 8B via Ollama",
+      "embedding_model": "text-embedding-3-large"
+    },
+    "ml_models": [
+      "demand-forecasting-lstm",
+      "churn-prediction-xgboost",
+      "anomaly-detection-isolation-forest",
+      "document-classification-bert",
+      "route-optimization-rl",
+      "fraud-detection-gnn"
+    ]
+  },
+
+  "infrastructure": {
+    "cloud_primary": "AWS",
+    "cloud_secondary": "Yandex Cloud",
+    "cloud_tertiary": "Kazakhtelecom Cloud",
+    "container_runtime": "containerd 1.7",
+    "orchestration": "Kubernetes 1.30.2",
+    "iac": "Terraform 1.8.5",
+    "gitops": "ArgoCD 2.11",
+    "ci_cd": "GitHub Actions + ArgoCD",
+    "monitoring": {
+      "metrics": "Prometheus 2.52 + Grafana 11.0",
+      "logging": "Loki 3.0 + Promtail",
+      "tracing": "Jaeger 1.57 + OpenTelemetry",
+      "alerting": "PagerDuty"
+    },
+    "security": {
+      "secrets": "HashiCorp Vault 1.16",
+      "cert_management": "cert-manager 1.14",
+      "waf": "AWS WAF + ModSecurity",
+      "siem": "Wazuh 4.8",
+      "vulnerability_scanning": "Trivy 0.52 + Snyk"
+    },
+    "aws_regions": ["us-east-1", "eu-central-1", "ap-southeast-1"],
+    "yandex_regions": ["ru-central1"],
+    "kubernetes_nodes": {
+      "prod": 48,
+      "staging": 12,
+      "dev": 8
+    }
+  },
+
+  "timeline": {
+    "phase_0_discovery": {
+      "start": "2025-01-01",
+      "end": "2025-03-31",
+      "duration_months": 3
+    },
+    "phase_1_mvp": {
+      "start": "2025-04-01",
+      "end": "2025-11-30",
+      "duration_months": 8,
+      "modules_count": 5
+    },
+    "phase_2_full": {
+      "start": "2025-12-01",
+      "end": "2026-07-31",
+      "duration_months": 8,
+      "modules_count": 17
+    },
+    "ga_release": "2026-08-01",
+    "total_months_from_zero": 20
+  },
+
+  "budget_usd": {
+    "NOTE": "CONFLICT - CEO requests $6800000, CFO approved $4200000",
+    "cfo_approved": 4200000,
+    "ceo_requested": 6800000,
+    "pre_seed_raised": 850000,
+    "seed_target_cfo": 3500000,
+    "seed_target_ceo": 5000000,
+    "monthly_burn_rate": 310000
+  },
+
+  "pricing": {
+    "NOTE": "CONFLICT - three competing pricing proposals, not finalized",
+    "starter_usd_per_month": {
+      "cpo_proposal": 1990,
+      "cfo_proposal": 2500,
+      "sales_proposal": 2200
+    },
+    "business_usd_per_month": {
+      "cpo_proposal": 5990,
+      "cfo_proposal": 7500,
+      "sales_proposal": 6500
+    },
+    "enterprise_usd_per_month": {
+      "cpo_proposal": 14990,
+      "cfo_proposal": 18000,
+      "sales_proposal": 16500
+    },
+    "ai_pack_addon": {
+      "cpo_proposal": 990,
+      "cfo_proposal": 1200,
+      "sales_proposal": 1100
+    }
+  },
+
+  "compliance": {
+    "standards": ["ISO 27001", "ISO 9001:2015", "GDPR", "152-FZ", "PCI DSS Level 1"],
+    "data_residency": {
+      "russia": "Yandex Cloud ru-central1",
+      "kazakhstan": "Kazakhtelecom Cloud ALA",
+      "eu": "AWS eu-central-1 (Frankfurt)"
+    },
+    "certifications_planned": ["SOC 2 Type II", "ISO 27001", "FSTEC (Russia)"]
+  },
+
+  "sla": {
+    "starter_uptime": "99.95%",
+    "business_uptime": "99.95%",
+    "enterprise_uptime": "99.99%",
+    "api_p99_latency_ms": 200,
+    "rto_minutes": 15,
+    "rpo_minutes": 5
+  },
+
+  "api": {
+    "style": "REST + gRPC",
+    "spec": "OpenAPI 3.1",
+    "endpoints_count": 312,
+    "versioning": "URL-based (v1, v2)",
+    "rate_limiting": "1000 req/min (Starter), 10000 req/min (Business), unlimited (Enterprise)",
+    "auth": ["OAuth 2.0 + OIDC", "API Keys", "SAML 2.0", "LDAP/AD"]
+  },
+
+  "integrations": {
+    "banks": ["Kaspi Bank", "Halyk Bank", "Sberbank", "Tinkoff", "Raiffeisen", "HSBC"],
+    "erp": ["SAP S/4HANA", "1C:ERP", "Oracle ERP", "Microsoft Dynamics 365"],
+    "tms": ["SAP TM", "Oracle TMS"],
+    "payment": ["Stripe", "Payze", "CloudPayments"],
+    "communication": ["Slack", "Microsoft Teams", "Telegram Bot API"],
+    "edi": ["EDIFACT", "X12", "XML-based"],
+    "government_kz": ["ЭСФ (электронные счёт-фактуры)", "СОНО", "КГД ИС"],
+    "government_ru": ["1С:Отчётность", "СБИС", "Диадок"]
+  },
+
+  "development": {
+    "methodology": "SAFe (Scaled Agile Framework)",
+    "sprint_length_weeks": 2,
+    "planning_horizon": "3 months (PI Planning)",
+    "code_review": "mandatory (min 2 approvals)",
+    "branch_strategy": "trunk-based development",
+    "test_coverage_target": 85,
+    "performance_test_tool": "k6",
+    "api_contract_testing": "Pact",
+    "security_testing": ["SAST: SonarQube", "DAST: OWASP ZAP", "Pen test: annual"]
+  }
+}
