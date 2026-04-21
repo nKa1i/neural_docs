@@ -306,7 +306,7 @@ TIMELINE: то же самое для сроков.
 app = FastAPI()
 # When running in Docker, LM Studio is on the host machine.
 # Set LM_STUDIO_HOST env var to override (e.g. "host.docker.internal" on Docker Desktop).
-LOCAL_PC_IP = os.environ.get("LM_STUDIO_HOST", "127.0.0.1")
+LOCAL_PC_IP = os.environ.get("LM_STUDIO_HOST", "host.docker.internal")
 current_llm = LocalProvider(base_url=f"http://{LOCAL_PC_IP}:1234/v1")
 
 # ── Archive API ───────────────────────────────────────────────────────────────
