@@ -1,4 +1,7 @@
 import os
+import io
+import re
+import ast
 import time
 import json
 from typing import List
@@ -6,6 +9,190 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from openai import OpenAI
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FILE PARSERS (V2 Change 1): extract real signal from binary / code files
+# before feeding them to the LLM. Cuts token cost dramatically on large
+# projects (e.g. 11_omnicore_platform: ~190 KB → ~50-60 KB).
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_docx(content: bytes) -> str:
+    """Extract paragraphs + table cell text from a .docx file."""
+    try:
+        from docx import Document
+    except ImportError:
+        return content.decode("utf-8", errors="ignore")
+    try:
+        doc = Document(io.BytesIO(content))
+    except Exception as e:
+        return f"[DOCX parse error: {e}]"
+    out = []
+    for p in doc.paragraphs:
+        t = p.text.strip()
+        if t:
+            out.append(t)
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                out.append(" | ".join(cells))
+    return "\n".join(out)
+
+
+def _parse_pdf(content: bytes) -> str:
+    """Extract text per page from a PDF."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        try:
+            from PyPDF2 import PdfReader  # fallback
+        except ImportError:
+            return "[PDF parser not installed]"
+    try:
+        reader = PdfReader(io.BytesIO(content))
+    except Exception as e:
+        return f"[PDF parse error: {e}]"
+    out = []
+    for i, page in enumerate(reader.pages, 1):
+        try:
+            t = (page.extract_text() or "").strip()
+        except Exception:
+            t = ""
+        if t:
+            out.append(f"--- page {i} ---\n{t}")
+    return "\n\n".join(out)
+
+
+def _parse_python(source: str) -> str:
+    """
+    AST-based extraction: module docstring, top-level constants,
+    class/function signatures with their docstrings. Skips function bodies.
+    Falls back to raw comments if AST fails.
+    """
+    out = []
+    try:
+        tree = ast.parse(source)
+    except Exception:
+        # fallback: keep only comments and docstrings-ish content
+        keep = [ln for ln in source.splitlines()
+                if ln.strip().startswith("#") or '"""' in ln or "'''" in ln]
+        return "\n".join(keep)
+
+    mod_doc = ast.get_docstring(tree)
+    if mod_doc:
+        out.append(f'"""{mod_doc}"""')
+
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            try:
+                out.append(ast.unparse(node))
+            except Exception:
+                pass
+        elif isinstance(node, ast.Assign):
+            # top-level constants (UPPER_CASE)
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id.isupper():
+                    try:
+                        out.append(ast.unparse(node))
+                    except Exception:
+                        pass
+                    break
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            try:
+                args = ast.unparse(node.args)
+            except Exception:
+                args = "..."
+            out.append(f"def {node.name}({args}):")
+            d = ast.get_docstring(node)
+            if d:
+                out.append(f'    """{d}"""')
+        elif isinstance(node, ast.ClassDef):
+            bases = ""
+            try:
+                bases = ", ".join(ast.unparse(b) for b in node.bases)
+            except Exception:
+                pass
+            out.append(f"class {node.name}({bases}):")
+            d = ast.get_docstring(node)
+            if d:
+                out.append(f'    """{d}"""')
+            for sub in node.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    try:
+                        args = ast.unparse(sub.args)
+                    except Exception:
+                        args = "..."
+                    out.append(f"    def {sub.name}({args}):")
+                    sd = ast.get_docstring(sub)
+                    if sd:
+                        out.append(f'        """{sd}"""')
+    return "\n".join(out)
+
+
+_JAVA_SIG_RE = re.compile(
+    r"^\s*(?:public|private|protected|static|final|abstract|synchronized|\s)*"
+    r"[\w<>\[\],\s]+\s+\w+\s*\([^)]*\)\s*(?:throws[\w\s,]+)?\s*[{;]",
+    re.MULTILINE,
+)
+_JAVA_CLASS_RE = re.compile(
+    r"^\s*(?:public|private|protected|abstract|final|\s)*"
+    r"(?:class|interface|enum)\s+\w+[^{]*\{",
+    re.MULTILINE,
+)
+
+
+def _parse_java(source: str) -> str:
+    """
+    Regex-based extraction: package, imports, javadoc/comments,
+    class/interface headers, method signatures. Skips bodies.
+    """
+    out = []
+    # package + imports
+    for m in re.finditer(r"^\s*(package|import)\s+[^;]+;", source, re.MULTILINE):
+        out.append(m.group(0).strip())
+
+    # javadoc /** ... */ blocks
+    for m in re.finditer(r"/\*\*.*?\*/", source, re.DOTALL):
+        out.append(m.group(0))
+
+    # // comments that look informative (skip trivial 1-word ones)
+    for m in re.finditer(r"//[^\n]{6,}", source):
+        out.append(m.group(0).strip())
+
+    # class / interface / enum headers (without body)
+    for m in _JAVA_CLASS_RE.finditer(source):
+        out.append(m.group(0).rstrip("{").strip())
+
+    # method signatures (drop the opening brace/semicolon)
+    for m in _JAVA_SIG_RE.finditer(source):
+        sig = m.group(0).rstrip("{;").strip()
+        # filter noise: skip if it's actually an `if (...)` or similar control
+        if re.match(r"^\s*(if|for|while|switch|catch|return)\b", sig):
+            continue
+        out.append(sig)
+
+    return "\n".join(out)
+
+
+def extract_text(filename: str, content: bytes) -> str:
+    """Dispatch a file to the right parser based on extension."""
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".docx"):
+            return _parse_docx(content)
+        if name.endswith(".pdf"):
+            return _parse_pdf(content)
+        # textual formats from here on
+        text = content.decode("utf-8", errors="ignore")
+        if name.endswith(".py"):
+            # Prefix tells the MAP model this is source code, not a spec document
+            return "[SOURCE CODE — extract only technical_solution/architecture]\n" + _parse_python(text)
+        if name.endswith(".java"):
+            return "[SOURCE CODE — extract only technical_solution/architecture]\n" + _parse_java(text)
+        # .txt, .md, .json, and anything else → raw text
+        return text
+    except Exception as e:
+        return f"[parser error for {filename}: {e}]"
 
 # Path to the pre-generated samples archive (in the same folder as this file)
 SAMPLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "finetune_v2")
@@ -23,131 +210,209 @@ class LocalProvider(LLMProvider):
     def generate_document(self, files_data: list[dict], language: str = "ru") -> dict:
         start_time = time.time()
         total_tokens_used = 0
-        all_extracted_facts = ""
 
-        map_instruction = """Ты - безэмоциональный парсер текста. Твоя единственная задача - скопировать из текста все факты, цифры и требования, сохранив номер строки.
+        # ── Change 2: Schema-guided MAP ───────────────────────────────────────
+        # MAP now outputs a compact JSON keyed by the 9 schema fields instead of
+        # free-form "[N] Факт: ..." lines.  Python merges all chunk JSONs, detects
+        # budget/timeline conflicts deterministically, then feeds a concise
+        # structured fact list to the REDUCE LLM call.  Benefits:
+        #  • Model only writes facts that map to a known field → zero noise tokens
+        #  • Conflict detection is exact (Python string comparison), not guessed
+        #  • REDUCE prompt is shorter → more room for the actual content
+        MAP_CHUNK_CHARS  = 6_000   # chars per MAP call  (≈ 2 200 tokens safe)
+        REDUCE_MAX_CHARS = 5_500   # merged fact list cap for REDUCE
 
-ОТВЕЧАЙ СТРОГО В ФОРМАТЕ:
-[Номер строки] Факт: "цитата или точный пересказ"
+        SCHEMA_FIELDS_LIST   = ["goals", "requirements", "team", "risks"]
+        SCHEMA_FIELDS_SCALAR = ["technical_solution", "architecture", "timeline", "budget"]
 
-ВАЖНО: Обязательно извлекай все числовые значения — суммы денег, сроки в месяцах или неделях, версии, размеры команд. Каждое число должно быть отдельной строкой факта.
-Не придумывай ничего своего. Ничего не анализируй. Просто выписывай факты. Если фактов нет, пиши "Пусто"."""
+        map_instruction = """\
+You are a structured fact extractor. Read the document chunk and output ONLY a JSON object \
+with the fields below. Include ONLY fields you find clear evidence for — omit the rest entirely.
 
-        # ── MAP phase: all files processed in parallel ────────────────────────
-        # Russian/mixed text ≈ 2.7 chars/token.
-        # MAP budget: 8192 ctx - 500 system - 1000 output = 6692 tokens × 2.7 ≈ 18 000 chars
-        # Use 4 000 to be conservative — each chunk will be safely small.
-        # 4096 ctx: reserve ~400 system + ~600 output = 3096 tokens for content
-        # At 2.7 chars/token: 3096 × 2.7 ≈ 8 350 — use 6 000 to be safe
-        MAP_CHUNK_CHARS  = 6_000
-        # REDUCE: instruction ≈ 400 tokens, output ≈ 500 tokens → 3196 tokens left
-        # Compact facts ≈ 3 chars/token → cap at 6 000 chars
-        REDUCE_MAX_CHARS = 6_000
+{
+  "goals":              ["<project goal or objective — copy text exactly>"],
+  "requirements":       ["<functional or technical requirement — copy text exactly>"],
+  "technical_solution": "<programming languages, frameworks, engines, databases — copy exactly>",
+  "architecture":       "<system design, components, deployment — copy exactly>",
+  "team":               ["<any person, role, or team member mentioned — copy exactly>"],
+  "timeline":           "<any duration, deadline, or timeframe mentioned — copy exactly>",
+  "budget":             "<any monetary amount or cost mentioned — copy exactly>",
+  "risks":              ["<any risk, problem, or concern mentioned — copy exactly>"]
+}
+
+Rules:
+• Copy text EXACTLY as it appears, in the original language. Do not translate.
+• If a field has no evidence in this chunk, omit that key completely.
+• Output ONLY the JSON object — no markdown fences, no commentary.
+• IMPORTANT: If the chunk starts with [SOURCE CODE], only extract technical_solution \
+and architecture from it. Function names and method signatures are NOT goals or requirements."""
+
+        def _parse_map_output(raw: str) -> dict:
+            """Try to parse the MAP JSON; return {} on any failure."""
+            s = raw.find("{"); e = raw.rfind("}")
+            if s == -1 or e == -1:
+                return {}
+            snippet = raw[s:e+1]
+            try:
+                return json.loads(snippet)
+            except Exception:
+                # Strip trailing commas (common small-model mistake) and retry
+                cleaned = re.sub(r",\s*([}\]])", r"\1", snippet)
+                try:
+                    return json.loads(cleaned)
+                except Exception:
+                    return {}
 
         def _map_chunk(filename, lines, line_offset):
-            """Extract facts from a single chunk of lines."""
-            numbered = "\n".join([f"[{line_offset+i+1}] {line}" for i, line in enumerate(lines)])
+            """Send one chunk to the LLM; return (parsed_dict, token_count)."""
+            numbered = "\n".join(
+                f"[{line_offset+i+1}] {ln}" for i, ln in enumerate(lines)
+            )
             resp = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": map_instruction},
-                    {"role": "user",   "content": f"Файл: {filename}\nТекст:\n{numbered}"}
+                    {"role": "user",   "content": f"File: {filename}\n\n{numbered}"}
                 ],
                 temperature=0.0
             )
             tokens = resp.usage.total_tokens if resp.usage else 0
-            return resp.choices[0].message.content, tokens
+            parsed = _parse_map_output(resp.choices[0].message.content)
+            # Normalise: wrap accidental scalar in list where list is expected
+            for key in SCHEMA_FIELDS_LIST:
+                if key in parsed and isinstance(parsed[key], str):
+                    parsed[key] = [parsed[key]]
+            return parsed, tokens
 
         def _map_one(f):
-            lines = f['content'].splitlines()
-
-            # Build chunks that fit within the context window
-            chunks, current_chunk, current_len, offset = [], [], 0, 0
-            chunk_offsets = []
+            lines = f["content"].splitlines()
+            # Split into context-safe chunks
+            chunks, cur, cur_len, offset = [], [], 0, 0
             for i, line in enumerate(lines):
-                line_len = len(line) + 1  # +1 for newline
-                if current_len + line_len > MAP_CHUNK_CHARS and current_chunk:
-                    chunks.append((current_chunk, offset))
+                ll = len(line) + 1
+                if cur_len + ll > MAP_CHUNK_CHARS and cur:
+                    chunks.append((cur, offset))
                     offset = i
-                    current_chunk, current_len = [], 0
-                current_chunk.append(line)
-                current_len += line_len
-            if current_chunk:
-                chunks.append((current_chunk, offset))
+                    cur, cur_len = [], 0
+                cur.append(line)
+                cur_len += ll
+            if cur:
+                chunks.append((cur, offset))
 
-            # Process each chunk sequentially (parallel within a file risks OOM on small GPU)
-            all_facts, total_tokens = [], 0
+            file_dicts, total_tokens = [], 0
             for idx, (chunk_lines, line_offset) in enumerate(chunks):
-                chunk_label = f" (часть {idx+1}/{len(chunks)})" if len(chunks) > 1 else ""
-                facts, tokens = _map_chunk(f['filename'] + chunk_label, chunk_lines, line_offset)
-                all_facts.append(facts)
-                total_tokens += tokens
+                label = (f"{f['filename']} (part {idx+1}/{len(chunks)})"
+                         if len(chunks) > 1 else f['filename'])
+                d, tok = _map_chunk(label, chunk_lines, line_offset)
+                if d:
+                    d["_source"] = label
+                file_dicts.append(d)
+                total_tokens += tok
+            return f["filename"], file_dicts, total_tokens
 
-            return f['filename'], "\n".join(all_facts), total_tokens
-
-        max_workers = 1   # CPU-only: sequential is faster than parallel (no GPU contention)
+        # ── Run MAP sequentially (avoids OOM on CPU inference) ────────────────
+        max_workers = 1
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            map_results = list(pool.map(_map_one, files_data))  # order preserved
+            map_results = list(pool.map(_map_one, files_data))
 
-        for filename, fact_summary, tokens in map_results:
+        # ── Python merge: combine all chunk dicts ─────────────────────────────
+        # List fields → extend; scalar fields → collect all distinct values
+        # (multiple distinct budget/timeline values = conflict evidence)
+        merged: dict = {k: [] for k in SCHEMA_FIELDS_LIST + SCHEMA_FIELDS_SCALAR}
+        for filename, chunk_dicts, tokens in map_results:
             total_tokens_used += tokens
-            all_extracted_facts += f"\n\n--- ФАЙЛ: {filename} ---\n{fact_summary}\n"
+            for d in chunk_dicts:
+                src = d.get("_source", filename)
+                for key in SCHEMA_FIELDS_LIST:
+                    if key in d and isinstance(d[key], list):
+                        for item in d[key]:
+                            if item and str(item).strip():
+                                merged[key].append({"text": str(item), "source": src})
+                for key in SCHEMA_FIELDS_SCALAR:
+                    if key in d and d[key] and str(d[key]).strip():
+                        merged[key].append({"text": str(d[key]), "source": src})
 
-        # NOTE: ALL has_conflict values start as false and ALL conflict_details are empty.
-        # The model must ONLY set has_conflict=true when it finds REAL differing values
-        # in the extracted facts, and it must write REAL values — never placeholder words.
-        json_template = """{
-  "project_overview": "СЮДА — краткое описание проекта из фактов",
-  "goals":            [{"text": "СЮДА — точный текст цели из фактов",        "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
-                       {"text": "СЮДА — точный текст второй цели из фактов", "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}],
-  "requirements":     [{"text": "СЮДА — точный текст требования из фактов",  "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
-                       {"text": "СЮДА — точный текст второго требования",    "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}],
-  "technical_solution":{"text": "СЮДА — технология/стек из фактов",         "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
-  "architecture":      {"text": "СЮДА — архитектурное решение из фактов",   "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
-  "team":             [{"text": "СЮДА — имя и роль участника из фактов",     "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}],
-  "timeline":          {"text": "СЮДА — конкретный срок из фактов",         "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
-  "budget":            {"text": "СЮДА — конкретная сумма из фактов",        "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""},
-  "risks":            [{"text": "СЮДА — точный текст риска из фактов",       "source": "файл.txt, [N]", "has_conflict": false, "conflict_details": ""}]
-}"""
+        # ── Python conflict detection (deterministic) ─────────────────────────
+        def _detect_conflict(entries: list) -> tuple:
+            if len(entries) < 2:
+                return False, ""
+            seen: dict = {}
+            for e in entries:
+                norm = re.sub(r"\s+", " ", e["text"].strip().lower())
+                if norm not in seen:
+                    seen[norm] = e["source"]
+            if len(seen) < 2:
+                return False, ""
+            parts = "; ".join(f'{src} — "{e["text"]}"'
+                              for e, src in zip(entries, seen.values()))
+            return True, f"Conflict: {parts}"
 
-        reduce_instruction = f"""Ты — строгий JSON-генератор. Заполни шаблон ниже, используя ТОЛЬКО текст из раздела ФАКТЫ.
+        budget_conflict,   budget_detail   = _detect_conflict(merged["budget"])
+        timeline_conflict, timeline_detail = _detect_conflict(merged["timeline"])
 
-═══ ЗАПРЕТЫ (нарушение = неверный ответ) ═══
-• ЗАПРЕЩЕНО вписывать любой текст, которого нет в ФАКТАХ.
-• ЗАПРЕЩЕНО копировать текст из шаблона — шаблон показывает только структуру, не содержание.
-• ЗАПРЕЩЕНО оставлять поле "text" пустой строкой "". Нет данных → пиши "Данные отсутствуют".
-• ЗАПРЕЩЕНО писать слова "срок_А/B", "сумма_А/B", "файл_А/B" — это технические метки, не данные.
-
-═══ КАК ЗАПОЛНЯТЬ "text" ═══
-Для каждого элемента массива (goals, requirements, team, risks):
-  — найди в ФАКТАХ строку, относящуюся к этой теме
-  — скопируй её содержание дословно в поле "text"
-  — укажи реальный файл и номер строки в "source"
-
-═══ КАК ЗАПОЛНЯТЬ КОНФЛИКТЫ ═══
-BUDGET: найди ВСЕ денежные суммы в ФАКТАХ.
-  Если найдено ≥2 разных суммы → "has_conflict": true,
-  "conflict_details": "Конфликт: РЕАЛЬНЫЙ_ФАЙЛ, [N] — РЕАЛЬНАЯ_СУММА; РЕАЛЬНЫЙ_ФАЙЛ2, [M] — РЕАЛЬНАЯ_СУММА2"
-TIMELINE: то же самое для сроков.
-Нет расхождений → "has_conflict": false, "conflict_details": ""
-
-Выведи ТОЛЬКО JSON без текста до или после.
-ШАБЛОН (каждое поле "СЮДА…" замени на реальный текст из ФАКТОВ):
-{json_template}
-"""
-
-        # Truncate facts to stay within the model's context window
+        # ── Build compact fact summary for REDUCE ─────────────────────────────
+        # Format: FIELD | source | value  (one line per entry)
+        fact_lines = []
+        for key in SCHEMA_FIELDS_LIST + SCHEMA_FIELDS_SCALAR:
+            for e in merged[key]:
+                fact_lines.append(f"{key} | {e['source']} | {e['text']}")
+        all_extracted_facts = "\n".join(fact_lines)
         if len(all_extracted_facts) > REDUCE_MAX_CHARS:
             all_extracted_facts = (
                 all_extracted_facts[:REDUCE_MAX_CHARS]
-                + "\n\n... [факты обрезаны из-за ограничения контекста модели] ..."
+                + "\n... [truncated — context limit reached]"
             )
+
+        # ── REDUCE: LLM compiles final spec from structured fact list ────────────
+        # Conflict status is already known from Python — pass as explicit hints
+        # so the model just copies them, never guesses.
+        conflict_hints = ""
+        if budget_conflict:
+            conflict_hints += f"\nBUDGET CONFLICT: {budget_detail}"
+        if timeline_conflict:
+            conflict_hints += f"\nTIMELINE CONFLICT: {timeline_detail}"
+
+        json_template = """{
+  "project_overview": "<1-2 sentence summary written from the goals/requirements facts>",
+  "goals":        [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
+  "requirements": [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
+  "technical_solution": {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
+  "architecture":       {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
+  "team":    [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
+  "timeline":     {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
+  "budget":       {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
+  "risks":   [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}]
+}"""
+
+        reduce_instruction = f"""You are a strict JSON generator. Fill the template below using ONLY the FACTS provided.
+
+FACTS format — each line: FIELD | source | value
+
+RULES:
+• Use ONLY the facts listed. Never invent, translate, or paraphrase beyond the given text.
+• Keep all text in the SAME LANGUAGE as the source fact (do not translate Russian to English).
+• If a field has no facts, write "Нет данных" in "text" and "" in "source".
+• Never leave "text" as an empty string "".
+• For list fields (goals, requirements, team, risks): one item per unique fact.
+• For scalar fields (technical_solution, architecture, timeline, budget):
+  - "text" must contain the ACTUAL VALUE (e.g. "$700 000" or "8 месяцев"), NOT a conflict description.
+  - copy the source of that value into "source".
+• project_overview: write 1-2 sentences in Russian summarising what the project is about.
+• Output ONLY the JSON object — no markdown, no commentary.
+
+CONFLICT HINTS (pre-detected by the system):{conflict_hints if conflict_hints else " none"}
+• If a conflict hint exists for budget/timeline → set has_conflict=true, paste the HINT TEXT into conflict_details. The "text" field must still contain the actual value, not the conflict string.
+• All other fields → has_conflict=false, conflict_details="".
+
+TEMPLATE (replace every <fact text> / <source> with real values from FACTS):
+{json_template}
+"""
 
         final_response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[
                 {"role": "system", "content": reduce_instruction},
-                {"role": "user", "content": f"Факты:\n{all_extracted_facts}"}
+                {"role": "user",   "content": f"FACTS:\n{all_extracted_facts}"}
             ],
             temperature=0.0
         )
@@ -155,10 +420,6 @@ TIMELINE: то же самое для сроков.
         end_time = time.time()
 
         raw_content = final_response.choices[0].message.content
-        start_idx = raw_content.find('{')
-        end_idx = raw_content.rfind('}')
-        clean_json = raw_content[start_idx:end_idx+1] if start_idx != -1 and end_idx != -1 else raw_content
-
         duration_ms = int((end_time - start_time) * 1000)
 
         # ── helpers (defined before use) ─────────────────────────────────────
@@ -170,9 +431,10 @@ TIMELINE: то же самое для сроков.
             Also clears has_conflict=True when conflict_details ended up empty.
             """
             import re
-            # Matches patterns like: срок_A  сумма_B  файл_A  срок_1
+            # Matches placeholder patterns the LLM sometimes copies from the template
             PLACEHOLDER = re.compile(
-                r'\b(?:срок|сумма|файл|значение|value|term)_[A-Za-zА-Яа-я0-9]{1,2}\b',
+                r'\b(?:срок|сумма|файл|значение|value|term|file|part)_[A-Za-zА-Яа-я0-9]{1,2}\b'
+                r'|\.{3}',   # also catch literal "..." left in the template fields
                 re.IGNORECASE
             )
             if not isinstance(obj, dict):
@@ -210,10 +472,18 @@ TIMELINE: то же самое для сроков.
                 if not text or not text.strip():
                     return False
                 # Skip generic fallback phrases — those are always "valid"
-                if 'отсутству' in text.lower() or 'нет данных' in text.lower():
+                low = text.lower()
+                if ('отсутству' in low or 'нет данных' in low
+                        or 'no data' in low or 'not found' in low):
                     return True
+                # Long words (≥4 chars)
                 words = re.findall(r'[а-яёa-z0-9]{4,}', text.lower())
-                return any(w in corpus_lower for w in words)
+                if any(w in corpus_lower for w in words):
+                    return True
+                # Numeric values: dollar amounts, month counts etc. can be short
+                # (e.g. "$700" splits at comma → "700" = 3 chars, fails word check)
+                nums = re.findall(r'\d+', text)
+                return any(n in corpus_lower for n in nums if len(n) >= 2)
 
             if not isinstance(obj, dict):
                 return
@@ -273,14 +543,149 @@ TIMELINE: то же самое для сроков.
                         f"другие поля — {other_vals}"
                     )
 
+        # ── Multi-stage JSON repair ───────────────────────────────────────────
+        # LLMs commonly output } where ] is expected (or vice-versa), leave
+        # trailing commas, or add markdown fences.  We try progressively more
+        # aggressive fixes before giving up.
+        def _repair_json(raw: str):
+            """Return a parsed dict, or None if all repair stages fail."""
+            s = raw.find("{"); e = raw.rfind("}")
+            if s == -1 or e == -1:
+                return None
+            snippet = raw[s:e+1]
+
+            # Stage 1 — direct parse
+            try:
+                return json.loads(snippet)
+            except Exception:
+                pass
+
+            # Stage 2 — strip trailing commas: ,} or ,]
+            fixed = re.sub(r",\s*([}\]])", r"\1", snippet)
+            try:
+                return json.loads(fixed)
+            except Exception:
+                pass
+
+            # Stage 3 — fix bracket mismatches: } where ] expected (or vice-versa)
+            # Walk char-by-char tracking the real open-bracket stack so every
+            # closer uses whatever bracket matches the opener.  Also closes any
+            # brackets that were never closed.
+            def _fix_brackets(text: str) -> str:
+                out, stack = [], []
+                in_str = esc = False
+                for ch in text:
+                    if esc:
+                        esc = False; out.append(ch); continue
+                    if ch == "\\" and in_str:
+                        esc = True; out.append(ch); continue
+                    if ch == '"':
+                        in_str = not in_str; out.append(ch); continue
+                    if in_str:
+                        out.append(ch); continue
+                    if ch == "{":
+                        stack.append("}"); out.append(ch)
+                    elif ch == "[":
+                        stack.append("]"); out.append(ch)
+                    elif ch in "}]":
+                        out.append(stack.pop() if stack else ch)
+                    else:
+                        out.append(ch)
+                while stack:       # close any unclosed brackets
+                    out.append(stack.pop())
+                return "".join(out)
+
+            fixed2 = _fix_brackets(fixed)
+            try:
+                return json.loads(fixed2)
+            except Exception:
+                pass
+
+            # Stage 4 — also strip markdown fences and retry everything
+            stripped = re.sub(r"```(?:json)?|```", "", raw).strip()
+            for attempt in (stripped, re.sub(r",\s*([}\]])", r"\1", stripped)):
+                s2 = attempt.find("{"); e2 = attempt.rfind("}")
+                if s2 != -1 and e2 != -1:
+                    try:
+                        return json.loads(attempt[s2:e2+1])
+                    except Exception:
+                        try:
+                            return json.loads(_fix_brackets(attempt[s2:e2+1]))
+                        except Exception:
+                            pass
+            return None
+
         # Parse JSON output (now that helpers are defined above)
+        repaired = _repair_json(raw_content)
         try:
-            parsed_data = json.loads(clean_json)
+            if repaired is None:
+                raise ValueError("all JSON repair stages failed")
+            parsed_data = repaired
             _sanitize_placeholders(parsed_data)
             _sanitize_hallucinations(parsed_data, all_extracted_facts)
             _check_cross_field_timeline(parsed_data)
         except Exception:
             parsed_data = {"error": "Llama 3 вернула невалидный JSON", "raw_output": raw_content}
+
+        # ── Python-guaranteed post-processing ─────────────────────────────────
+        # The REDUCE model sometimes writes "No data" for fields the MAP step
+        # successfully extracted.  Fill those gaps directly from `merged` so the
+        # final output always reflects everything the parser found.
+        # Also: always stamp Python-detected conflict flags — never let the model
+        # override what our deterministic comparison already proved.
+        if isinstance(parsed_data, dict) and "error" not in parsed_data:
+
+            def _is_empty(val):
+                """Return True when a field carries a fallback/empty value."""
+                if val is None:
+                    return True
+                if isinstance(val, dict):
+                    t = (val.get("text") or "").strip().lower()
+                    return t in ("", "no data", "данные отсутствуют", "нет данных")
+                if isinstance(val, list):
+                    return len(val) == 0 or all(
+                        _is_empty(i) for i in val
+                    )
+                t = str(val).strip().lower()
+                return t in ("", "no data", "данные отсутствуют", "нет данных")
+
+            def _make_fact(entry):
+                return {"text": entry["text"], "source": entry["source"],
+                        "has_conflict": False, "conflict_details": ""}
+
+            # Scalar fields: inject best merged value when REDUCE said "No data"
+            for key in SCHEMA_FIELDS_SCALAR:
+                if merged[key] and _is_empty(parsed_data.get(key)):
+                    parsed_data[key] = _make_fact(merged[key][0])
+
+            # List fields: inject all merged values when REDUCE said "No data"
+            for key in SCHEMA_FIELDS_LIST:
+                if merged[key] and _is_empty(parsed_data.get(key)):
+                    parsed_data[key] = [_make_fact(e) for e in merged[key]]
+
+            # Conflict flags: always trust Python detection over the model.
+            # Also fix the common mistake where the model writes the conflict
+            # description into the "text" field instead of the actual value.
+            if budget_conflict and merged["budget"]:
+                b = parsed_data.get("budget")
+                if isinstance(b, dict):
+                    # If text looks like a conflict description, replace with first real value
+                    if ("conflict" in (b.get("text") or "").lower()
+                            or _is_empty(b)):
+                        b["text"]   = merged["budget"][0]["text"]
+                        b["source"] = merged["budget"][0]["source"]
+                    b["has_conflict"]     = True
+                    b["conflict_details"] = budget_detail
+
+            if timeline_conflict and merged["timeline"]:
+                t = parsed_data.get("timeline")
+                if isinstance(t, dict):
+                    if ("conflict" in (t.get("text") or "").lower()
+                            or _is_empty(t)):
+                        t["text"]   = merged["timeline"][0]["text"]
+                        t["source"] = merged["timeline"][0]["source"]
+                    t["has_conflict"]     = True
+                    t["conflict_details"] = timeline_detail
 
         def count_conflicts(doc):
             count = 0
@@ -1210,7 +1615,7 @@ async def generate_document(files: List[UploadFile] = File(...), language: str =
     files_data = []
     for file in files:
         content = await file.read()
-        text = content.decode('utf-8', errors='ignore')
+        text = extract_text(file.filename, content)
         files_data.append({"filename": file.filename, "content": text})
     try:
         result = current_llm.generate_document(files_data, language=language)
