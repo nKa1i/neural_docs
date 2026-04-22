@@ -34,21 +34,58 @@ class LocalProvider(LLMProvider):
 Не придумывай ничего своего. Ничего не анализируй. Просто выписывай факты. Если фактов нет, пиши "Пусто"."""
 
         # ── MAP phase: all files processed in parallel ────────────────────────
-        def _map_one(f):
-            lines = f['content'].splitlines()
-            numbered = "\n".join([f"[{i+1}] {line}" for i, line in enumerate(lines)])
+        # Russian/mixed text ≈ 2.7 chars/token.
+        # MAP budget: 8192 ctx - 500 system - 1000 output = 6692 tokens × 2.7 ≈ 18 000 chars
+        # Use 4 000 to be conservative — each chunk will be safely small.
+        # 4096 ctx: reserve ~400 system + ~600 output = 3096 tokens for content
+        # At 2.7 chars/token: 3096 × 2.7 ≈ 8 350 — use 6 000 to be safe
+        MAP_CHUNK_CHARS  = 6_000
+        # REDUCE: instruction ≈ 400 tokens, output ≈ 500 tokens → 3196 tokens left
+        # Compact facts ≈ 3 chars/token → cap at 6 000 chars
+        REDUCE_MAX_CHARS = 6_000
+
+        def _map_chunk(filename, lines, line_offset):
+            """Extract facts from a single chunk of lines."""
+            numbered = "\n".join([f"[{line_offset+i+1}] {line}" for i, line in enumerate(lines)])
             resp = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": map_instruction},
-                    {"role": "user",   "content": f"Файл: {f['filename']}\nТекст:\n{numbered}"}
+                    {"role": "user",   "content": f"Файл: {filename}\nТекст:\n{numbered}"}
                 ],
                 temperature=0.0
             )
             tokens = resp.usage.total_tokens if resp.usage else 0
-            return f['filename'], resp.choices[0].message.content, tokens
+            return resp.choices[0].message.content, tokens
 
-        max_workers = min(len(files_data), 5)   # cap at 5 parallel calls
+        def _map_one(f):
+            lines = f['content'].splitlines()
+
+            # Build chunks that fit within the context window
+            chunks, current_chunk, current_len, offset = [], [], 0, 0
+            chunk_offsets = []
+            for i, line in enumerate(lines):
+                line_len = len(line) + 1  # +1 for newline
+                if current_len + line_len > MAP_CHUNK_CHARS and current_chunk:
+                    chunks.append((current_chunk, offset))
+                    offset = i
+                    current_chunk, current_len = [], 0
+                current_chunk.append(line)
+                current_len += line_len
+            if current_chunk:
+                chunks.append((current_chunk, offset))
+
+            # Process each chunk sequentially (parallel within a file risks OOM on small GPU)
+            all_facts, total_tokens = [], 0
+            for idx, (chunk_lines, line_offset) in enumerate(chunks):
+                chunk_label = f" (часть {idx+1}/{len(chunks)})" if len(chunks) > 1 else ""
+                facts, tokens = _map_chunk(f['filename'] + chunk_label, chunk_lines, line_offset)
+                all_facts.append(facts)
+                total_tokens += tokens
+
+            return f['filename'], "\n".join(all_facts), total_tokens
+
+        max_workers = 1   # CPU-only: sequential is faster than parallel (no GPU contention)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             map_results = list(pool.map(_map_one, files_data))  # order preserved
 
@@ -98,6 +135,13 @@ TIMELINE: то же самое для сроков.
 ШАБЛОН (каждое поле "СЮДА…" замени на реальный текст из ФАКТОВ):
 {json_template}
 """
+
+        # Truncate facts to stay within the model's context window
+        if len(all_extracted_facts) > REDUCE_MAX_CHARS:
+            all_extracted_facts = (
+                all_extracted_facts[:REDUCE_MAX_CHARS]
+                + "\n\n... [факты обрезаны из-за ограничения контекста модели] ..."
+            )
 
         final_response = self.client.chat.completions.create(
             model=self.model_name,

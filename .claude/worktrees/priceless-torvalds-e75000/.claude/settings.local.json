@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm list *)",
+      "PowerShell(node --version 2>&1)",
+      "PowerShell(npm list -g docx 2>&1)",
+      "PowerShell(npm list -g --depth=0 2>&1)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.claude\\\\plugins\\\\\" -ErrorAction SilentlyContinue | Select-Object Name, LastWriteTime)",
+      "PowerShell(claude config list 2>&1)",
+      "PowerShell(claude plugin list 2>&1)"
+    ]
+  }
+}
