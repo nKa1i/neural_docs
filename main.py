@@ -322,7 +322,10 @@ with the fields below. Include ONLY fields you find clear evidence for — omit 
 }
 
 Rules:
-• Copy text EXACTLY as it appears, in the original language. Do not translate.
+• ⚠️ DO NOT TRANSLATE. Copy text EXACTLY as it appears in the source. \
+If the source text is in Russian — output Russian. \
+If the source text is in English — output English. \
+Never convert Russian words to English or English words to Russian.
 • If a field has no evidence in this chunk, omit that key completely.
 • Output ONLY the JSON object — no markdown fences, no commentary.
 • IMPORTANT: If the chunk starts with [SOURCE CODE], only extract technical_solution \
@@ -447,7 +450,9 @@ and architecture from it. Function names and method signatures are NOT goals or 
 
             file_dicts, total_tokens = [], 0
             for idx, (chunk_lines, line_offset) in enumerate(chunks):
-                label = (f"{f['filename']} (part {idx+1}/{len(chunks)})"
+                start_ln = line_offset + 1
+                end_ln   = line_offset + len(chunk_lines)
+                label = (f"{f['filename']} (lines {start_ln}–{end_ln})"
                          if len(chunks) > 1 else f['filename'])
                 d, tok = _map_chunk(label, chunk_lines, line_offset)
                 if d:
@@ -596,8 +601,11 @@ and architecture from it. Function names and method signatures are NOT goals or 
         # dates — NOT contradictions.  We strip " (part N/M)" suffixes so that
         # different chunks of the same file are treated as the same source.
         def _base_src(source: str) -> str:
-            """Return bare filename, stripping chunk labels like '(part 2/4)'."""
-            return re.sub(r"\s*\(part\s+\d+/\d+\)\s*$", "", source.strip())
+            """Return bare filename, stripping chunk labels like '(lines 1–80)' or '(part 2/4)'."""
+            s = source.strip()
+            s = re.sub(r"\s*\(lines\s+\d+[–\-]\d+\)\s*$", "", s)
+            s = re.sub(r"\s*\(part\s+\d+/\d+\)\s*$", "", s)
+            return s
 
         def _detect_conflict(entries: list) -> tuple:
             if len(entries) < 2:
@@ -652,6 +660,13 @@ and architecture from it. Function names and method signatures are NOT goals or 
                 fact_lines.append(f"{key} | {e['source']} | {e['text']}")
         all_extracted_facts = "\n".join(fact_lines)   # kept for hallucination check corpus
 
+        # ── Detect document language from extracted facts ──────────────────────
+        # Count Cyrillic vs total alpha characters across all facts.
+        # If ≥ 15% of letters are Cyrillic the project docs are primarily Russian.
+        _cyr_count   = sum(1 for c in all_extracted_facts if '\u0400' <= c <= '\u04ff')
+        _alpha_count = sum(1 for c in all_extracted_facts if c.isalpha())
+        _doc_is_russian = _alpha_count > 0 and (_cyr_count / _alpha_count) >= 0.15
+
         # ── Change 3: Hierarchical REDUCE ─────────────────────────────────────
         # If the merged fact list fits in one REDUCE call → single pass (fast).
         # If it overflows (large projects like 11_omnicore_platform) → split into
@@ -677,6 +692,16 @@ and architecture from it. Function names and method signatures are NOT goals or 
   "risks":   [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}]
 }"""
 
+        _lang_rule = (
+            "• ⚠️ ЯЗЫК / LANGUAGE: Исходные документы на русском языке.\n"
+            "  - project_overview: пишите на русском языке.\n"
+            "  - Все остальные поля: копируйте текст ТОЧНО как в источнике.\n"
+            "    Русский текст → оставляйте русским. English technical terms → оставляйте английскими.\n"
+            "  - ЗАПРЕЩЕНО переводить русский текст на английский язык."
+            if _doc_is_russian else
+            "• Copy text EXACTLY as it appears in the source language. Do not translate."
+        )
+
         def _build_reduce_instruction(facts_text: str, include_conflicts: bool = True) -> str:
             hints = conflict_hints if include_conflicts else ""
             return f"""You are a strict JSON generator. Fill the template below using ONLY the FACTS provided.
@@ -684,8 +709,8 @@ and architecture from it. Function names and method signatures are NOT goals or 
 FACTS format — each line: FIELD | source | value
 
 RULES:
-• Use ONLY the facts listed. Never invent, translate, or paraphrase beyond the given text.
-• Keep all text in the SAME LANGUAGE as the source fact (do not translate Russian to English).
+• Use ONLY the facts listed. Never invent or paraphrase beyond the given text.
+{_lang_rule}
 • If a field has no facts, write "Нет данных" in "text" and "" in "source".
 • Never leave "text" as an empty string "".
 • For list fields (goals, requirements, team, risks): one item per unique fact.
@@ -846,7 +871,8 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             # Matches placeholder patterns the LLM sometimes copies from the template
             PLACEHOLDER = re.compile(
                 r'\b(?:срок|сумма|файл|значение|value|term|file|part)_[A-Za-zА-Яа-я0-9]{1,2}\b'
-                r'|\.{3}',   # also catch literal "..." left in the template fields
+                r'|\.{3}'    # literal "..." left in the template fields
+                r'|\*\*ADR-\d+[^*]*\*\*',   # **ADR-001: Timeline Conflict** — arch-doc headers
                 re.IGNORECASE
             )
             if not isinstance(obj, dict):
@@ -1146,13 +1172,22 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     return True
                 if isinstance(val, dict):
                     t = (val.get("text") or "").strip().lower()
-                    return t in ("", "no data", "данные отсутствуют", "нет данных")
+                    if t in ("", "no data", "данные отсутствуют", "нет данных"):
+                        return True
+                    if re.match(r"^not\s+(?:specified|mentioned|found|available|provided)\b", t):
+                        return True
+                    return False
                 if isinstance(val, list):
                     return len(val) == 0 or all(
                         _is_empty(i) for i in val
                     )
                 t = str(val).strip().lower()
-                return t in ("", "no data", "данные отсутствуют", "нет данных")
+                if t in ("", "no data", "данные отсутствуют", "нет данных"):
+                    return True
+                # "Not specified in the provided facts." and similar REDUCE fallbacks
+                if re.match(r"^not\s+(?:specified|mentioned|found|available|provided)\b", t):
+                    return True
+                return False
 
             def _make_fact(entry):
                 return {"text": entry["text"], "source": entry["source"],
@@ -1170,7 +1205,9 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
 
             # Strip "Данные отсутствуют" / "Нет данных" placeholder items that
             # sometimes slip into list fields alongside real values
-            NON_DATA_LC = {"данные отсутствуют", "нет данных", "no data", ""}
+            NON_DATA_LC = {"данные отсутствуют", "нет данных", "no data",
+                           "not specified", "not mentioned", "not found",
+                           "not specified in the provided facts.", ""}
             for key in SCHEMA_FIELDS_LIST:
                 items = parsed_data.get(key)
                 if isinstance(items, list) and len(items) > 1:
@@ -1229,6 +1266,19 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 r"Notification\s+Hub|Event\s+Bus)",
                 re.IGNORECASE,
             )
+            # Code class-name suffixes — Java/Python class names extracted from
+            # source files that are NOT people (e.g. StockMovementRepository,
+            # WarehouseService, PaymentController, CashFlowForecaster).
+            _CODE_CLASS_SUFFIX = re.compile(
+                r"(?:Repository|Service|Controller|Handler|Manager|Factory|"
+                r"Provider|Engine|Processor|Forecaster|Publisher|Reconciliation"
+                r"Engine|Worker|Scheduler|Listener|Consumer|Producer|"
+                r"Validator|Serializer|Deserializer|Mapper|Converter|"
+                r"Client|Stub|Proxy|Adapter|Gateway|Broker|Registry|"
+                r"Store|Cache|Queue|Bus|Hub|Router|Resolver|Builder|"
+                r"Executor|Dispatcher|Aggregator|Collector|Reporter)s?$",
+                re.IGNORECASE,
+            )
             team_items = parsed_data.get("team")
             if isinstance(team_items, list) and len(team_items) > 1:
                 cleaned_team = []
@@ -1242,9 +1292,107 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     # Skip pure-number entries (e.g. "21", "52" from config.json values)
                     if re.match(r"^\d+$", txt):
                         continue
+                    # Skip code class names ending in Repository/Service/Controller etc.
+                    # These are Java/Python identifiers extracted from source files,
+                    # not actual people or team roles.
+                    # Match a single PascalCase/camelCase word with a code suffix.
+                    if _CODE_CLASS_SUFFIX.search(txt) and re.match(r"^[A-Z][A-Za-z0-9]+$", txt):
+                        continue
+                    # Skip ALL-CAPS Cyrillic/Latin section headings that leaked from
+                    # budget_draft.txt etc. (e.g. "ФИНАНСОВОЕ ПЛАНИРОВАНИЕ И БЮДЖЕТ").
+                    # Heuristic: ≥ 8 chars, every letter is uppercase.
+                    _letters_only = re.sub(r"[^а-яёa-zA-ZА-ЯЁ]", "", txt)
+                    if (len(txt) >= 8 and _letters_only
+                            and _letters_only == _letters_only.upper()):
+                        continue
                     cleaned_team.append(i)
                 if cleaned_team:
                     parsed_data["team"] = cleaned_team
+
+            # ── Line-number prefix stripper ───────────────────────────────────
+            # architecture.md lines are prefixed "[437] text" during MAP chunking.
+            # Strip these "[NNN] -?" prefixes from every extracted text value so
+            # they don't bleed into the final document output.
+            _LINE_NUM_RE = re.compile(r"^\[\d+\]\s*[-–—]?\s*")
+
+            def _strip_line_num(text: str) -> str:
+                return _LINE_NUM_RE.sub("", text).strip()
+
+            # ── Template placeholder filter ───────────────────────────────────
+            # When MAP processes config.json or .py files, it sometimes copies
+            # the instruction template text verbatim as a fact value, e.g.
+            # "<any risk, problem, or concern mentioned — copy exactly>" or
+            # "[any monetary amount or cost mentioned]" or "<fact text>".
+            # These are recognisable patterns — filter them out.
+            _TMPL_ANGLE  = re.compile(
+                r"^<\s*(?:any\b|fact\s+text|source\b)",
+                re.IGNORECASE
+            )
+            _TMPL_SQUARE = re.compile(
+                r"^\[\s*any\b",
+                re.IGNORECASE
+            )
+            # Also filter raw HTML/JS tags that slip in from PDF/DOCX artefacts
+            _HTML_TAG_RE = re.compile(r"^<[a-zA-Z/!]")
+
+            def _is_template_placeholder(text: str) -> bool:
+                t = text.strip()
+                if not t:
+                    return True
+                if _TMPL_ANGLE.match(t) or _TMPL_SQUARE.match(t):
+                    return True
+                # "<any X mentioned — copy exactly>" or "[any X mentioned]"
+                if re.match(
+                    r"^[<\[].{3,100}(?:mentioned|copy\s+exactly)[>\]]?$",
+                    t, re.IGNORECASE
+                ):
+                    return True
+                if _HTML_TAG_RE.match(t):
+                    return True
+                # "Not specified in the provided facts." / "Not mentioned" etc.
+                if re.match(
+                    r"^not\s+(?:specified|mentioned|found|available|provided)\b",
+                    t, re.IGNORECASE
+                ):
+                    return True
+                return False
+
+            # Apply both transforms to ALL list fields
+            for _key in SCHEMA_FIELDS_LIST:
+                _items = parsed_data.get(_key)
+                if not isinstance(_items, list):
+                    continue
+                _cleaned = []
+                for _i in _items:
+                    if not isinstance(_i, dict):
+                        continue
+                    _i["text"] = _strip_line_num(_i.get("text") or "")
+                    if not _i["text"] or _is_template_placeholder(_i["text"]):
+                        continue
+                    _cleaned.append(_i)
+                if _cleaned:
+                    parsed_data[_key] = _cleaned
+
+            # Apply line-number stripping to scalar field text values too
+            for _key in SCHEMA_FIELDS_SCALAR:
+                _fld = parsed_data.get(_key)
+                if isinstance(_fld, dict):
+                    _fld["text"] = _strip_line_num(_fld.get("text") or "")
+                    # If the scalar text is itself a template placeholder,
+                    # replace with the best real merged value for that field.
+                    if _is_template_placeholder(_fld["text"]):
+                        _best = next(
+                            (e for e in merged.get(_key, [])
+                             if e.get("text") and
+                             not _is_template_placeholder(_strip_line_num(e["text"]))),
+                            None
+                        )
+                        if _best:
+                            _fld["text"]   = _strip_line_num(_best["text"])
+                            _fld["source"] = _best["source"]
+                        else:
+                            _fld["text"]   = "Нет данных"
+                            _fld["source"] = ""
 
             # Budget text cleanup: if the model stored a Python-list repr or
             # JSON array string (e.g. "[{'amount': '30 000 000 тенге', ...}]"),
@@ -1260,6 +1408,27 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     elif merged["budget"]:
                         b["text"]   = merged["budget"][0]["text"]
                         b["source"] = merged["budget"][0]["source"]
+
+            # Budget document-title filter: "ФИНАНСОВОЕ ПЛАНИРОВАНИЕ И БЮДЖЕТ"
+            # is the title of the budget_draft.txt section, not a monetary value.
+            # Detect: budget text has NO digits AND is in ALL-CAPS Cyrillic.
+            b = parsed_data.get("budget")
+            if isinstance(b, dict):
+                bt = (b.get("text") or "").strip()
+                if bt and not re.search(r"\d", bt):
+                    # All-caps Cyrillic / Latin (document title) check
+                    letters = re.sub(r"[^а-яёa-zА-ЯЁA-Z]", "", bt)
+                    if letters and letters == letters.upper():
+                        # Replace with the first merged budget entry that has a digit
+                        _best_money = next(
+                            (e for e in merged.get("budget", [])
+                             if re.search(r"\d", e.get("text", "")) and
+                             not _is_template_placeholder(e.get("text", ""))),
+                            None
+                        )
+                        if _best_money:
+                            b["text"]   = _best_money["text"]
+                            b["source"] = _best_money["source"]
 
             # Conflict flags: always trust Python detection over the model.
             # Also fix the common mistake where the model writes the conflict
@@ -1284,6 +1453,40 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                         t["source"] = merged["timeline"][0]["source"]
                     t["has_conflict"]     = True
                     t["conflict_details"] = timeline_detail
+
+            # ── Final line-number stripping (after conflict flags may re-inject) ─
+            # Conflict flags code can replace budget/timeline .text with a raw
+            # merged[] value that still carries "[454] -" prefixes.  Re-strip here.
+            for _key in SCHEMA_FIELDS_SCALAR:
+                _fld = parsed_data.get(_key)
+                if isinstance(_fld, dict) and _fld.get("text"):
+                    _fld["text"] = _LINE_NUM_RE.sub("", _fld["text"]).strip()
+                    # Also clean inside conflict_details (which may contain "[437]")
+                    if _fld.get("conflict_details"):
+                        _fld["conflict_details"] = re.sub(
+                            r"\n?\[?\d+\]\s*[-–—]?\s*", " ", _fld["conflict_details"]
+                        ).strip()
+
+            # ── Deduplication pass (list fields) ──────────────────────────────
+            # The MAP phase can produce identical entries from different chunks of
+            # the same file, or the REDUCE model can repeat the same fact twice.
+            # Deduplicate by normalised text (lowercase, collapsed whitespace),
+            # keeping the first occurrence (which usually carries the best source).
+            for _key in SCHEMA_FIELDS_LIST:
+                _items = parsed_data.get(_key)
+                if not isinstance(_items, list) or len(_items) <= 1:
+                    continue
+                _seen: set = set()
+                _deduped = []
+                for _i in _items:
+                    if not isinstance(_i, dict):
+                        continue
+                    _norm = re.sub(r"\s+", " ", (_i.get("text") or "").strip().lower())
+                    if _norm and _norm not in _seen:
+                        _seen.add(_norm)
+                        _deduped.append(_i)
+                if _deduped:
+                    parsed_data[_key] = _deduped
 
         def count_conflicts(doc):
             count = 0
