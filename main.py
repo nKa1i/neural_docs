@@ -174,6 +174,78 @@ def _parse_java(source: str) -> str:
     return "\n".join(out)
 
 
+def _flatten_json(content: bytes) -> str:
+    """
+    Convert a JSON file into flat "key: value" lines so the MAP model
+    receives simple strings instead of nested dicts/arrays.
+    Example: {"tech_stack": ["Python", "FastAPI"]} → "tech_stack: Python\ntech_stack: FastAPI"
+    """
+    try:
+        data = json.loads(content.decode("utf-8", errors="ignore"))
+    except Exception:
+        return content.decode("utf-8", errors="ignore")
+
+    lines: list = []
+
+    def _walk(obj, prefix: str = ""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                new_prefix = f"{k}: " if not prefix else f"{prefix}{k}: "
+                _walk(v, new_prefix)
+        elif isinstance(obj, list):
+            for item in obj:
+                _walk(item, prefix)
+        else:
+            val = str(obj).strip()
+            if val:
+                lines.append(f"{prefix}{val}" if prefix else val)
+
+    _walk(data)
+    return "\n".join(lines)
+
+
+def _parse_markdown(text: str) -> str:
+    """
+    Strip heavy non-prose content from Markdown files so the MAP model
+    receives readable text instead of SQL, protobuf, ASCII art, and YAML.
+
+    Keeps: section headers (##), bullet points, regular paragraphs.
+    Removes:
+      • Fenced code blocks  (``` ... ```)
+      • Lines that are mostly box-drawing characters (ASCII art diagrams)
+      • Markdown table divider rows (|---|---|)
+      • Trailing whitespace / excessive blank lines
+    """
+    # 1. Remove fenced code blocks (``` ... ``` or ~~~ ... ~~~)
+    text = re.sub(r"```[\s\S]*?```", "", text)
+    text = re.sub(r"~~~[\s\S]*?~~~", "", text)
+
+    lines_out = []
+    prev_blank = False
+    for line in text.splitlines():
+        stripped = line.strip()
+
+        # Skip table divider rows: |---|---|
+        if re.match(r"^\|[\s\-\|:]+\|$", stripped):
+            continue
+
+        # Skip lines that are ≥ 40% box-drawing / ASCII-art characters
+        art_chars = sum(1 for c in stripped if c in "│├└─┐┘┌┤┬┴┼╔╗╚╝║═╠╣╦╩╬▼▲►◄")
+        if stripped and art_chars / len(stripped) >= 0.4:
+            continue
+
+        # Collapse multiple blank lines into one
+        if stripped == "":
+            if not prev_blank:
+                lines_out.append("")
+            prev_blank = True
+        else:
+            lines_out.append(line.rstrip())
+            prev_blank = False
+
+    return "\n".join(lines_out).strip()
+
+
 def extract_text(filename: str, content: bytes) -> str:
     """Dispatch a file to the right parser based on extension."""
     name = (filename or "").lower()
@@ -189,7 +261,15 @@ def extract_text(filename: str, content: bytes) -> str:
             return "[SOURCE CODE — extract only technical_solution/architecture]\n" + _parse_python(text)
         if name.endswith(".java"):
             return "[SOURCE CODE — extract only technical_solution/architecture]\n" + _parse_java(text)
-        # .txt, .md, .json, and anything else → raw text
+        if name.endswith(".json"):
+            # Flatten nested JSON to "key: value" lines — prevents MAP from
+            # copying complex objects verbatim as fact values
+            return _flatten_json(content)
+        if name.endswith(".md"):
+            # Strip code blocks and ASCII art — large .md files like architecture.md
+            # contain massive SQL/protobuf/YAML sections that overwhelm the model
+            return _parse_markdown(text)
+        # .txt and anything else → raw text
         return text
     except Exception as e:
         return f"[parser error for {filename}: {e}]"
@@ -219,8 +299,9 @@ class LocalProvider(LLMProvider):
         #  • Model only writes facts that map to a known field → zero noise tokens
         #  • Conflict detection is exact (Python string comparison), not guessed
         #  • REDUCE prompt is shorter → more room for the actual content
-        MAP_CHUNK_CHARS  = 6_000   # chars per MAP call  (≈ 2 200 tokens safe)
-        REDUCE_MAX_CHARS = 5_500   # merged fact list cap for REDUCE
+        MAP_CHUNK_CHARS  = 4_000   # chars per MAP call (≈ 1 500 tokens) — smaller
+        #                            gives json_schema grammar more VRAM headroom
+        REDUCE_MAX_CHARS = 5_000   # merged fact list cap for REDUCE
 
         SCHEMA_FIELDS_LIST   = ["goals", "requirements", "team", "risks"]
         SCHEMA_FIELDS_SCALAR = ["technical_solution", "architecture", "timeline", "budget"]
@@ -263,19 +344,84 @@ and architecture from it. Function names and method signatures are NOT goals or 
                 except Exception:
                     return {}
 
+        # ── Structured-output schemas ──────────────────────────────────────────
+        # LM Studio supports OpenAI-compatible response_format.
+        # "json_object"  → llama.cpp JSON grammar: always valid JSON, no fences.
+        # "json_schema"  → token-level GBNF grammar: forces exact field names +
+        #                  types (LM Studio 0.3.5+).  We try json_schema first for
+        #                  REDUCE and fall back to json_object if the server rejects
+        #                  it (older LM Studio versions).
+
+        # MAP schema: all fields optional (model omits keys it has no evidence for)
+        _MAP_RESPONSE_FORMAT = {"type": "json_object"}
+
+        # Shared shape for a single fact entry (used in list + scalar fields)
+        _FACT_ITEM = {
+            "type": "object",
+            "properties": {
+                "text":             {"type": "string"},
+                "source":           {"type": "string"},
+                "has_conflict":     {"type": "boolean"},
+                "conflict_details": {"type": "string"}
+            },
+            "required": ["text", "source", "has_conflict", "conflict_details"],
+            "additionalProperties": False
+        }
+
+        # REDUCE schema: all 9 fields always present, correct types enforced
+        _REDUCE_RESPONSE_FORMAT = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "project_spec",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "project_overview":   {"type": "string"},
+                        "goals":              {"type": "array",  "items": _FACT_ITEM},
+                        "requirements":       {"type": "array",  "items": _FACT_ITEM},
+                        "technical_solution": _FACT_ITEM,
+                        "architecture":       _FACT_ITEM,
+                        "team":               {"type": "array",  "items": _FACT_ITEM},
+                        "timeline":           _FACT_ITEM,
+                        "budget":             _FACT_ITEM,
+                        "risks":              {"type": "array",  "items": _FACT_ITEM}
+                    },
+                    "required": [
+                        "project_overview", "goals", "requirements",
+                        "technical_solution", "architecture",
+                        "team", "timeline", "budget", "risks"
+                    ],
+                    "additionalProperties": False
+                }
+            }
+        }
+
         def _map_chunk(filename, lines, line_offset):
             """Send one chunk to the LLM; return (parsed_dict, token_count)."""
             numbered = "\n".join(
                 f"[{line_offset+i+1}] {ln}" for i, ln in enumerate(lines)
             )
-            resp = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": map_instruction},
-                    {"role": "user",   "content": f"File: {filename}\n\n{numbered}"}
-                ],
-                temperature=0.0
-            )
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": map_instruction},
+                        {"role": "user",   "content": f"File: {filename}\n\n{numbered}"}
+                    ],
+                    temperature=0.0,
+                    response_format=_MAP_RESPONSE_FORMAT
+                )
+            except Exception:
+                # Fallback: older LM Studio / model doesn't support response_format
+                resp = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": map_instruction},
+                        {"role": "user",   "content": f"File: {filename}\n\n{numbered}"}
+                    ],
+                    temperature=0.0
+                )
             tokens = resp.usage.total_tokens if resp.usage else 0
             parsed = _parse_map_output(resp.choices[0].message.content)
             # Normalise: wrap accidental scalar in list where list is expected
@@ -329,43 +475,190 @@ and architecture from it. Function names and method signatures are NOT goals or 
                             if item and str(item).strip():
                                 merged[key].append({"text": str(item), "source": src})
                 for key in SCHEMA_FIELDS_SCALAR:
-                    if key in d and d[key] and str(d[key]).strip():
-                        merged[key].append({"text": str(d[key]), "source": src})
+                    if key in d and d[key]:
+                        val = d[key]
+                        # MAP sometimes returns a list for a scalar field
+                        # (e.g. when the model finds multiple values in the chunk).
+                        # Join them into a single string rather than repr-ing the list.
+                        if isinstance(val, list):
+                            val = "; ".join(
+                                str(v).strip() for v in val if str(v).strip()
+                            )
+                        elif not isinstance(val, str):
+                            val = str(val)
+                        val = val.strip()
+                        if val:
+                            merged[key].append({"text": val, "source": src})
+
+        # ── Change 4: Regex pre-extraction ────────────────────────────────────
+        # Scan every file's parsed text with regex patterns for the three fields
+        # most likely to be missed or garbled by the LLM (budget, timeline, team).
+        # Regex hits are added to `merged` so Python conflict detection sees them
+        # alongside whatever the MAP phase found.  No LLM call — 100% reliable
+        # for clearly formatted numeric/structured values.
+
+        # Normalise a monetary string: collapse whitespace, unify currency symbols
+        def _norm_money(s: str) -> str:
+            s = re.sub(r"\s+", " ", s.strip())
+            s = re.sub(r"тнг\b", "тенге", s, flags=re.IGNORECASE)
+            return s
+
+        # Regex patterns — each tuple: (compiled_pattern, group_index, field)
+        BUDGET_RES = [
+            # "30 000 000 тенге" / "30000000 ₸"  — require at least 4 digits total
+            re.compile(r"\b(\d[\d\s]{3,}\s*(?:тенге|тнг|₸))", re.IGNORECASE),
+            # "$4,200,000" / "$ 4 200 000" — stop before ". N." list-item suffixes
+            re.compile(r"(\$\s*\d[\d\s]*\d)(?!\s*[,\s]*\d{3,})(?=\D|$)", re.IGNORECASE),
+            # "4 200 000 usd/eur/руб"
+            re.compile(r"\b(\d[\d\s]{3,}\s*(?:usd|eur|руб\.?|rub))\b", re.IGNORECASE),
+            # "бюджет: X" / "budget: X" — grab rest of line only if it contains a digit
+            re.compile(r"(?:бюджет|budget)\s*[:\-]\s*(\d[^\n]{2,40})", re.IGNORECASE),
+        ]
+
+        TIMELINE_RES = [
+            # "20 месяцев" / "6 мес." / "12 months"
+            re.compile(r"\b(\d+\s*(?:месяц(?:ев|а)?|мес\.?|month|months|week|weeks))\b", re.IGNORECASE),
+            # "Q2 2026" / "Q4 2025"
+            re.compile(r"\b(Q[1-4]\s*20\d{2})\b", re.IGNORECASE),
+            # ISO date "2026-03-15" or "15.03.2026"
+            re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b"),
+            re.compile(r"\b(\d{2}\.\d{2}\.20\d{2})\b"),
+            # "через X месяцев / лет"
+            re.compile(r"(через\s+\d+\s*(?:месяц\w*|нед\w*|год\w*|лет))", re.IGNORECASE),
+        ]
+
+        TEAM_RES = [
+            # "2 iOS-разработчика" / "3 developer" / "5 engineers"
+            re.compile(
+                r"\b(\d+\s*(?:iOS|Android|бэкенд|backend|frontend|разработчик\w*|"
+                r"developer|engineer|designer|qa|тестировщик\w*|продакт\w*|аналитик\w*|"
+                r"devops|архитектор\w*))",
+                re.IGNORECASE,
+            ),
+            # "Имя: Роль" or "Name — role" informal lines
+            re.compile(r"^[-•*]\s*(.{5,60})\s*[:\-–—]\s*(.{3,40})$", re.MULTILINE),
+        ]
+
+        already_in_merged: dict = {
+            "budget":   {re.sub(r"\s+", " ", e["text"].lower()) for e in merged["budget"]},
+            "timeline": {re.sub(r"\s+", " ", e["text"].lower()) for e in merged["timeline"]},
+            "team":     {re.sub(r"\s+", " ", e["text"].lower()) for e in merged["team"]},
+        }
+
+        for f in files_data:
+            fname = f["filename"]
+            text  = f["content"]
+
+            # Budget
+            for pat in BUDGET_RES:
+                for m in pat.finditer(text):
+                    val = _norm_money(m.group(1))
+                    norm = re.sub(r"\s+", " ", val.lower())
+                    # Skip if already present or too short / looks like noise
+                    if norm in already_in_merged["budget"] or len(val) < 4:
+                        continue
+                    # Skip if it's clearly not a monetary value (e.g. plain word from бюджет: line)
+                    if not re.search(r"\d", val):
+                        continue
+                    merged["budget"].append({"text": val, "source": fname})
+                    already_in_merged["budget"].add(norm)
+
+            # Timeline
+            for pat in TIMELINE_RES:
+                for m in pat.finditer(text):
+                    val = m.group(1).strip()
+                    norm = re.sub(r"\s+", " ", val.lower())
+                    if norm in already_in_merged["timeline"] or len(val) < 3:
+                        continue
+                    merged["timeline"].append({"text": val, "source": fname})
+                    already_in_merged["timeline"].add(norm)
+
+            # Team
+            for pat in TEAM_RES:
+                for m in pat.finditer(text):
+                    # Two-group pattern (name — role): groups == 2
+                    if pat.groups == 2 and m.lastindex and m.lastindex >= 2:
+                        try:
+                            val = f"{m.group(1).strip()}: {m.group(2).strip()}"
+                        except Exception:
+                            val = m.group(0).strip()
+                    else:
+                        val = m.group(1).strip()
+                    norm = re.sub(r"\s+", " ", val.lower())
+                    if norm in already_in_merged["team"] or len(val) < 4:
+                        continue
+                    merged["team"].append({"text": val, "source": fname})
+                    already_in_merged["team"].add(norm)
 
         # ── Python conflict detection (deterministic) ─────────────────────────
+        # A real conflict = DIFFERENT VALUES in DIFFERENT FILES.
+        # Multiple values from the same file are budget line items or milestone
+        # dates — NOT contradictions.  We strip " (part N/M)" suffixes so that
+        # different chunks of the same file are treated as the same source.
+        def _base_src(source: str) -> str:
+            """Return bare filename, stripping chunk labels like '(part 2/4)'."""
+            return re.sub(r"\s*\(part\s+\d+/\d+\)\s*$", "", source.strip())
+
         def _detect_conflict(entries: list) -> tuple:
             if len(entries) < 2:
                 return False, ""
-            seen: dict = {}
+
+            # Keep one representative (longest) value per base file
+            per_file: dict = {}   # base_src → best entry
             for e in entries:
-                norm = re.sub(r"\s+", " ", e["text"].strip().lower())
-                if norm not in seen:
-                    seen[norm] = e["source"]
-            if len(seen) < 2:
-                return False, ""
-            parts = "; ".join(f'{src} — "{e["text"]}"'
-                              for e, src in zip(entries, seen.values()))
+                src = _base_src(e["source"])
+                existing = per_file.get(src)
+                if existing is None or len(e["text"]) > len(existing["text"]):
+                    per_file[src] = e
+
+            if len(per_file) < 2:
+                return False, ""   # all values from the same file → no conflict
+
+            # Check whether the per-file values actually differ
+            norms = {re.sub(r"\s+", " ", e["text"].strip().lower())
+                     for e in per_file.values()}
+            if len(norms) < 2:
+                return False, ""   # all files agree → no conflict
+
+            parts = "; ".join(
+                f'{src} — "{e["text"]}"' for src, e in per_file.items()
+            )
             return True, f"Conflict: {parts}"
 
         budget_conflict,   budget_detail   = _detect_conflict(merged["budget"])
         timeline_conflict, timeline_detail = _detect_conflict(merged["timeline"])
 
-        # ── Build compact fact summary for REDUCE ─────────────────────────────
+        # ── Deduplicate scalar fields: one best value per source file ──────────
+        # The regex extraction can add 5-6 budget line-items all from the same
+        # file.  Passing all of them to REDUCE overwhelms the model and causes it
+        # to write a complex dict/list as the budget value → broken JSON.
+        # We keep the LONGEST (most informative) entry per base filename.
+        for key in SCHEMA_FIELDS_SCALAR:
+            if len(merged[key]) <= 1:
+                continue
+            per_file: dict = {}
+            for e in merged[key]:
+                src = _base_src(e["source"])
+                cur = per_file.get(src)
+                if cur is None or len(e["text"]) > len(cur["text"]):
+                    per_file[src] = e
+            merged[key] = list(per_file.values())
+
+        # ── Build compact fact summary ─────────────────────────────────────────
         # Format: FIELD | source | value  (one line per entry)
         fact_lines = []
         for key in SCHEMA_FIELDS_LIST + SCHEMA_FIELDS_SCALAR:
             for e in merged[key]:
                 fact_lines.append(f"{key} | {e['source']} | {e['text']}")
-        all_extracted_facts = "\n".join(fact_lines)
-        if len(all_extracted_facts) > REDUCE_MAX_CHARS:
-            all_extracted_facts = (
-                all_extracted_facts[:REDUCE_MAX_CHARS]
-                + "\n... [truncated — context limit reached]"
-            )
+        all_extracted_facts = "\n".join(fact_lines)   # kept for hallucination check corpus
 
-        # ── REDUCE: LLM compiles final spec from structured fact list ────────────
-        # Conflict status is already known from Python — pass as explicit hints
-        # so the model just copies them, never guesses.
+        # ── Change 3: Hierarchical REDUCE ─────────────────────────────────────
+        # If the merged fact list fits in one REDUCE call → single pass (fast).
+        # If it overflows (large projects like 11_omnicore_platform) → split into
+        # groups, run one REDUCE LLM call per group to produce partial specs, then
+        # merge the partial specs in Python.  No extra LLM call for the merge —
+        # conflicts are already detected deterministically by Python above.
+
         conflict_hints = ""
         if budget_conflict:
             conflict_hints += f"\nBUDGET CONFLICT: {budget_detail}"
@@ -373,7 +666,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
             conflict_hints += f"\nTIMELINE CONFLICT: {timeline_detail}"
 
         json_template = """{
-  "project_overview": "<1-2 sentence summary written from the goals/requirements facts>",
+  "project_overview": "<1-2 sentence summary in Russian of what the project is>",
   "goals":        [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
   "requirements": [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
   "technical_solution": {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
@@ -384,7 +677,9 @@ and architecture from it. Function names and method signatures are NOT goals or 
   "risks":   [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}]
 }"""
 
-        reduce_instruction = f"""You are a strict JSON generator. Fill the template below using ONLY the FACTS provided.
+        def _build_reduce_instruction(facts_text: str, include_conflicts: bool = True) -> str:
+            hints = conflict_hints if include_conflicts else ""
+            return f"""You are a strict JSON generator. Fill the template below using ONLY the FACTS provided.
 
 FACTS format — each line: FIELD | source | value
 
@@ -395,31 +690,148 @@ RULES:
 • Never leave "text" as an empty string "".
 • For list fields (goals, requirements, team, risks): one item per unique fact.
 • For scalar fields (technical_solution, architecture, timeline, budget):
-  - "text" must contain the ACTUAL VALUE (e.g. "$700 000" or "8 месяцев"), NOT a conflict description.
+  - "text" must contain the ACTUAL VALUE (e.g. "30 000 000 тенге" or "6 мес"), NOT a conflict description.
   - copy the source of that value into "source".
 • project_overview: write 1-2 sentences in Russian summarising what the project is about.
 • Output ONLY the JSON object — no markdown, no commentary.
 
-CONFLICT HINTS (pre-detected by the system):{conflict_hints if conflict_hints else " none"}
-• If a conflict hint exists for budget/timeline → set has_conflict=true, paste the HINT TEXT into conflict_details. The "text" field must still contain the actual value, not the conflict string.
+CONFLICT HINTS (pre-detected by the system):{hints if hints else " none"}
+• If a conflict hint exists for budget/timeline → set has_conflict=true and paste the HINT TEXT into conflict_details. The "text" field must still contain the actual value.
 • All other fields → has_conflict=false, conflict_details="".
 
-TEMPLATE (replace every <fact text> / <source> with real values from FACTS):
+TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
 {json_template}
 """
 
-        final_response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {"role": "system", "content": reduce_instruction},
-                {"role": "user",   "content": f"FACTS:\n{all_extracted_facts}"}
-            ],
-            temperature=0.0
-        )
-        total_tokens_used += final_response.usage.total_tokens if final_response.usage else 0
-        end_time = time.time()
+        def _call_reduce(facts_text: str, include_conflicts: bool = True) -> tuple:
+            """One REDUCE LLM call. Returns (raw_response_str, token_count).
+            Tries json_schema → json_object → plain text (in order of strictness).
+            """
+            instruction = _build_reduce_instruction(facts_text, include_conflicts)
+            messages = [
+                {"role": "system", "content": instruction},
+                {"role": "user",   "content": f"FACTS:\n{facts_text}"}
+            ]
+            # Tier 1: json_schema — token-level grammar, exact field types enforced
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=0.0,
+                    response_format=_REDUCE_RESPONSE_FORMAT
+                )
+                tokens = resp.usage.total_tokens if resp.usage else 0
+                return resp.choices[0].message.content, tokens
+            except Exception:
+                pass
+            # Tier 2: json_object — forces valid JSON but no schema constraint
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=0.0,
+                    response_format={"type": "json_object"}
+                )
+                tokens = resp.usage.total_tokens if resp.usage else 0
+                return resp.choices[0].message.content, tokens
+            except Exception:
+                pass
+            # Tier 3: no format constraint — original behaviour, repair handles it
+            resp = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=0.0
+            )
+            tokens = resp.usage.total_tokens if resp.usage else 0
+            return resp.choices[0].message.content, tokens
 
-        raw_content = final_response.choices[0].message.content
+        def _merge_partial_specs(dicts: list) -> dict:
+            """
+            Merge a list of partial parsed-spec dicts (output of intermediate
+            REDUCE calls) into one combined dict — pure Python, no LLM call.
+            List fields are concatenated; scalar fields take the first non-empty
+            value (conflicts are stamped by the Python detection step later).
+            """
+            NON_DATA = {"нет данных", "no data", "данные отсутствуют", ""}
+
+            result: dict = {
+                "project_overview": "",
+                **{k: [] for k in SCHEMA_FIELDS_LIST},
+                **{k: {"text": "Нет данных", "source": "",
+                       "has_conflict": False, "conflict_details": ""}
+                   for k in SCHEMA_FIELDS_SCALAR},
+            }
+
+            for d in dicts:
+                if not isinstance(d, dict) or "error" in d:
+                    continue
+
+                # project_overview — keep first useful one
+                if not result["project_overview"]:
+                    ov = (d.get("project_overview") or "").strip()
+                    if ov and ov.lower() not in NON_DATA and "<" not in ov:
+                        result["project_overview"] = ov
+
+                # list fields — extend, skip empty placeholders
+                for key in SCHEMA_FIELDS_LIST:
+                    for item in (d.get(key) or []):
+                        if not isinstance(item, dict):
+                            continue
+                        if (item.get("text") or "").strip().lower() in NON_DATA:
+                            continue
+                        result[key].append(item)
+
+                # scalar fields — take first non-empty value
+                for key in SCHEMA_FIELDS_SCALAR:
+                    cur = result[key]
+                    if cur.get("text", "").strip().lower() not in NON_DATA:
+                        continue   # already filled
+                    val = d.get(key)
+                    if isinstance(val, dict):
+                        vt = (val.get("text") or "").strip()
+                        if vt and vt.lower() not in NON_DATA:
+                            result[key] = val
+
+            return result
+
+        # ── Decide: single REDUCE or hierarchical ─────────────────────────────
+        if len(all_extracted_facts) <= REDUCE_MAX_CHARS:
+            # ── Fast path: fits in one call ───────────────────────────────────
+            raw_content, tokens = _call_reduce(all_extracted_facts)
+            total_tokens_used += tokens
+        else:
+            # ── Hierarchical path: split → partial REDUCEs → Python merge ─────
+            lines = all_extracted_facts.split("\n")
+            groups: list[list[str]] = []
+            cur_grp: list[str] = []
+            cur_len = 0
+            for line in lines:
+                ll = len(line) + 1
+                if cur_len + ll > REDUCE_MAX_CHARS and cur_grp:
+                    groups.append(cur_grp)
+                    cur_grp, cur_len = [], 0
+                cur_grp.append(line)
+                cur_len += ll
+            if cur_grp:
+                groups.append(cur_grp)
+
+            partial_dicts: list[dict] = []
+            for i, grp_lines in enumerate(groups):
+                grp_text = "\n".join(grp_lines)
+                # Only pass conflict hints to the last group to avoid duplication
+                raw_part, tokens = _call_reduce(
+                    grp_text, include_conflicts=(i == len(groups) - 1)
+                )
+                total_tokens_used += tokens
+                # Reuse _repair_json defined below — forward-declared via closure;
+                # we'll parse after _repair_json is defined.
+                partial_dicts.append(raw_part)   # store raw strings for now
+
+            # _repair_json is defined in the helpers block below; parse after
+            raw_content = None          # signal: use partial_dicts path
+            _partial_raw_list = partial_dicts  # stash for post-helper use
+
+        end_time = time.time()
         duration_ms = int((end_time - start_time) * 1000)
 
         # ── helpers (defined before use) ─────────────────────────────────────
@@ -613,19 +1025,112 @@ TEMPLATE (replace every <fact text> / <source> with real values from FACTS):
                             return json.loads(_fix_brackets(attempt[s2:e2+1]))
                         except Exception:
                             pass
+
+            # Stage 5 — replace single-quoted string values with double-quoted.
+            # The model sometimes writes: "text": '{"key": value}' which is
+            # invalid JSON.  Replace 'value' → "value" carefully (not inside strings).
+            def _fix_single_quotes(text: str) -> str:
+                # Replace ': 'value'' → ': "value"' only outside existing double-quoted strings
+                return re.sub(r"(?<=:\s)'((?:[^'\\]|\\.)*)'", r'"\1"', text)
+
+            for src_text in (fixed, fixed2, stripped):
+                sq = _fix_single_quotes(src_text)
+                sq_clean = re.sub(r",\s*([}\]])", r"\1", sq)
+                sq_clean = _fix_brackets(sq_clean)
+                s3 = sq_clean.find("{"); e3 = sq_clean.rfind("}")
+                if s3 != -1 and e3 != -1:
+                    try:
+                        return json.loads(sq_clean[s3:e3+1])
+                    except Exception:
+                        pass
             return None
 
-        # Parse JSON output (now that helpers are defined above)
-        repaired = _repair_json(raw_content)
-        try:
-            if repaired is None:
-                raise ValueError("all JSON repair stages failed")
-            parsed_data = repaired
-            _sanitize_placeholders(parsed_data)
-            _sanitize_hallucinations(parsed_data, all_extracted_facts)
-            _check_cross_field_timeline(parsed_data)
-        except Exception:
-            parsed_data = {"error": "Llama 3 вернула невалидный JSON", "raw_output": raw_content}
+        def _normalize_parsed(data: dict):
+            """
+            Coerce field types after JSON parse so the rest of the pipeline can
+            assume a consistent shape:
+              • Scalar fields (timeline, budget, etc.) must be dicts with
+                {text, source, has_conflict, conflict_details}.
+                If REDUCE returned a plain string or a list, convert it.
+              • List fields (goals, requirements, team, risks) must be lists of
+                {text, source, …} dicts.  If REDUCE returned a plain list of
+                strings, wrap each string.
+            """
+            if not isinstance(data, dict):
+                return
+            EMPTY_SCALAR = {"text": "Нет данных", "source": "",
+                            "has_conflict": False, "conflict_details": ""}
+
+            for key in SCHEMA_FIELDS_SCALAR:
+                val = data.get(key)
+                if val is None:
+                    data[key] = dict(EMPTY_SCALAR)
+                elif isinstance(val, list):
+                    # e.g. "timeline": ["6 мес", "12 мес"]  →  join to one string
+                    joined = "; ".join(
+                        (v.get("text") if isinstance(v, dict) else str(v)).strip()
+                        for v in val
+                        if (v.get("text") if isinstance(v, dict) else str(v)).strip()
+                    )
+                    src = next(
+                        (v.get("source", "") for v in val if isinstance(v, dict) and v.get("source")),
+                        ""
+                    )
+                    data[key] = {"text": joined or "Нет данных", "source": src,
+                                 "has_conflict": False, "conflict_details": ""}
+                elif isinstance(val, str):
+                    data[key] = {"text": val.strip() or "Нет данных", "source": "",
+                                 "has_conflict": False, "conflict_details": ""}
+                # else: already a dict — leave it
+
+            for key in SCHEMA_FIELDS_LIST:
+                val = data.get(key)
+                if val is None:
+                    data[key] = []
+                elif isinstance(val, str):
+                    data[key] = [{"text": val.strip(), "source": "",
+                                  "has_conflict": False, "conflict_details": ""}] if val.strip() else []
+                elif isinstance(val, list):
+                    normalized = []
+                    for item in val:
+                        if isinstance(item, dict):
+                            normalized.append(item)
+                        elif isinstance(item, str) and item.strip():
+                            normalized.append({"text": item.strip(), "source": "",
+                                               "has_conflict": False, "conflict_details": ""})
+                    data[key] = normalized
+                # else: leave as-is (already a list of dicts)
+
+        # Parse JSON output — now that _repair_json and _merge_partial_specs are defined
+        if raw_content is not None:
+            # ── Single-REDUCE path ────────────────────────────────────────────
+            repaired = _repair_json(raw_content)
+            try:
+                if repaired is None:
+                    raise ValueError("all JSON repair stages failed")
+                parsed_data = repaired
+                _normalize_parsed(parsed_data)
+                _sanitize_placeholders(parsed_data)
+                _sanitize_hallucinations(parsed_data, all_extracted_facts)
+                _check_cross_field_timeline(parsed_data)
+            except Exception:
+                parsed_data = {"error": "Llama 3 вернула невалидный JSON", "raw_output": raw_content}
+        else:
+            # ── Hierarchical-REDUCE path — parse partials and merge ───────────
+            parsed_partials = []
+            for raw_part in _partial_raw_list:
+                p = _repair_json(raw_part)
+                if p and isinstance(p, dict):
+                    _normalize_parsed(p)
+                    _sanitize_placeholders(p)
+                    _sanitize_hallucinations(p, all_extracted_facts)
+                    parsed_partials.append(p)
+            if parsed_partials:
+                parsed_data = _merge_partial_specs(parsed_partials)
+                _normalize_parsed(parsed_data)
+                _check_cross_field_timeline(parsed_data)
+            else:
+                parsed_data = {"error": "Llama 3 вернула невалидный JSON во всех частях", "raw_output": str(_partial_raw_list)}
 
         # ── Python-guaranteed post-processing ─────────────────────────────────
         # The REDUCE model sometimes writes "No data" for fields the MAP step
@@ -662,6 +1167,99 @@ TEMPLATE (replace every <fact text> / <source> with real values from FACTS):
             for key in SCHEMA_FIELDS_LIST:
                 if merged[key] and _is_empty(parsed_data.get(key)):
                     parsed_data[key] = [_make_fact(e) for e in merged[key]]
+
+            # Strip "Данные отсутствуют" / "Нет данных" placeholder items that
+            # sometimes slip into list fields alongside real values
+            NON_DATA_LC = {"данные отсутствуют", "нет данных", "no data", ""}
+            for key in SCHEMA_FIELDS_LIST:
+                items = parsed_data.get(key)
+                if isinstance(items, list) and len(items) > 1:
+                    cleaned = [i for i in items
+                               if not (isinstance(i, dict) and
+                                       (i.get("text") or "").strip().lower() in NON_DATA_LC)]
+                    if cleaned:
+                        parsed_data[key] = cleaned
+
+            # Requirements: remove entries that look like budget section headings
+            # (e.g. "Общий бюджет", "Фонд оплаты труда", "Инфраструктура") or
+            # architecture section titles ("PostgreSQL Domain Databases",
+            # "Event Store Schema") — single-phrase headings with no verb.
+            _REQ_HEADING_NOISE = re.compile(
+                r"^(?:Общий\s+бюджет|Фонд\s+оплаты\s+труда|Инфраструктура|"
+                r"Маркетинг\s+и\s+продажи|Резерв|"
+                r"PostgreSQL\s+Domain\s+Databases|Event\s+Store\s+Schema|"
+                r"ClickHouse\s+Schema|Data\s+Retention\s+Policy)$",
+                re.IGNORECASE,
+            )
+            req_items = parsed_data.get("requirements")
+            if isinstance(req_items, list) and len(req_items) > 1:
+                filtered_reqs = [
+                    i for i in req_items
+                    if not (isinstance(i, dict) and
+                            _REQ_HEADING_NOISE.match((i.get("text") or "").strip()))
+                ]
+                if filtered_reqs:
+                    parsed_data["requirements"] = filtered_reqs
+
+            # Architecture / technical_solution: remove values that are just
+            # Java package declarations or Python import lists extracted by the
+            # code parsers (e.g. "['package io.cryptonest.test']").
+            _CODE_NOISE = re.compile(
+                r"^\s*\[?'?(?:package|import)\s+[\w\.]+", re.IGNORECASE
+            )
+            for key in ("architecture", "technical_solution"):
+                fld = parsed_data.get(key)
+                if isinstance(fld, dict):
+                    if _CODE_NOISE.match(fld.get("text") or ""):
+                        # Replace with best merged value if available
+                        if merged[key]:
+                            parsed_data[key] = _make_fact(merged[key][0])
+                        else:
+                            fld["text"] = "Нет данных"
+
+            # Team: remove entries that look like spec/API descriptions rather
+            # than actual people, and pure numbers leaked from config.json.
+            _SPEC_NOISE = re.compile(
+                r"^(?:GET|POST|PUT|DELETE|PATCH)\s+/|https?://|"
+                r"^(?:RESTful|OAuth|AES|HL7|FHIR|шифрован|аудит.лог|"
+                # Technical component names that appear in architecture diagrams
+                r"Kong\s+API\s+Gateway|Business\s+Domain\s+Services|"
+                r"AI/ML\s+Services|Background\s+Workers|WebSocket\s+Hub|"
+                r"OIDC\s+Provider|Auth\s+Service|RBAC\s+Model|"
+                r"Notification\s+Hub|Event\s+Bus)",
+                re.IGNORECASE,
+            )
+            team_items = parsed_data.get("team")
+            if isinstance(team_items, list) and len(team_items) > 1:
+                cleaned_team = []
+                for i in team_items:
+                    if not isinstance(i, dict):
+                        continue
+                    txt = (i.get("text") or "").strip()
+                    # Skip spec/API noise
+                    if _SPEC_NOISE.search(txt):
+                        continue
+                    # Skip pure-number entries (e.g. "21", "52" from config.json values)
+                    if re.match(r"^\d+$", txt):
+                        continue
+                    cleaned_team.append(i)
+                if cleaned_team:
+                    parsed_data["team"] = cleaned_team
+
+            # Budget text cleanup: if the model stored a Python-list repr or
+            # JSON array string (e.g. "[{'amount': '30 000 000 тенге', ...}]"),
+            # extract the first monetary amount with a simple regex.
+            b = parsed_data.get("budget")
+            if isinstance(b, dict):
+                bt = (b.get("text") or "").strip()
+                if bt.startswith("[") or bt.startswith("{") or bt.startswith("'"):
+                    # Try to pull the first number+currency from the string
+                    m = re.search(r"[\d\s]+(?:тенге|тнг|руб|usd|\$|€|₸)", bt, re.IGNORECASE)
+                    if m:
+                        b["text"] = m.group(0).strip()
+                    elif merged["budget"]:
+                        b["text"]   = merged["budget"][0]["text"]
+                        b["source"] = merged["budget"][0]["source"]
 
             # Conflict flags: always trust Python detection over the model.
             # Also fix the common mistake where the model writes the conflict
@@ -708,7 +1306,11 @@ TEMPLATE (replace every <fact text> / <source> with real values from FACTS):
             def txt(f):
                 if isinstance(f, dict):
                     return (f.get('text') or '').strip()
-                return (f or '').strip()
+                if isinstance(f, list):
+                    # REDUCE occasionally writes a list for a scalar field
+                    parts = [txt(i) for i in f if txt(i)]
+                    return "; ".join(parts)
+                return str(f or '').strip()
 
             def lst(arr):
                 if not isinstance(arr, list):
