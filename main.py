@@ -1357,8 +1357,12 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
 app = FastAPI()
 # When running in Docker, LM Studio is on the host machine.
 # Set LM_STUDIO_HOST env var to override (e.g. "host.docker.internal" on Docker Desktop).
-LOCAL_PC_IP = os.environ.get("LM_STUDIO_HOST", "host.docker.internal")
-current_llm = LocalProvider(base_url=f"http://{LOCAL_PC_IP}:1234/v1")
+LOCAL_PC_IP  = os.environ.get("LM_STUDIO_HOST",  "host.docker.internal")
+# Set LM_STUDIO_MODEL to match whatever model is loaded in LM Studio.
+# LM Studio ignores the model field and always uses the loaded model,
+# but the value appears in the output metadata so keep it accurate.
+LM_MODEL     = os.environ.get("LM_STUDIO_MODEL", "qwen/qwen2.5-v1-7b")
+current_llm  = LocalProvider(base_url=f"http://{LOCAL_PC_IP}:1234/v1", model_name=LM_MODEL)
 
 # ── Archive API ───────────────────────────────────────────────────────────────
 @app.get("/api/samples")
