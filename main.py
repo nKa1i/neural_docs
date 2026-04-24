@@ -1430,6 +1430,133 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                             b["text"]   = _best_money["text"]
                             b["source"] = _best_money["source"]
 
+            # ── Audit-driven noise filters (5 rules) ──────────────────────────
+            # Rule 1: Budget — suppress tiny line-items (< $100K) when the
+            # merged budget set contains at least one major figure (≥ $1M).
+            # Fixes "$80,000/year in cloud" leaking in as the headline budget
+            # when the real project budget ($4.2M–$6.8M) is available.
+            def _amount_usd(text: str) -> float:
+                """Extract first USD-denominated amount; returns 0 if none."""
+                t = text.replace("\u00a0", " ")
+                # Match $X,XXX,XXX or X XXX XXX USD / $ / dollars
+                m = re.search(
+                    r"(?:\$|USD\s*)?\s*([\d][\d\s,.]*)\s*(?:USD|\$|dollars?)?",
+                    t, re.IGNORECASE
+                )
+                if not m:
+                    return 0.0
+                num = re.sub(r"[\s,]", "", m.group(1))
+                try:
+                    val = float(num)
+                except ValueError:
+                    return 0.0
+                # Heuristic: presence of $/USD in the string confirms USD
+                if not re.search(r"\$|USD|dollar", t, re.IGNORECASE):
+                    return 0.0
+                return val
+
+            _merged_budget = merged.get("budget", [])
+            _has_major = any(
+                _amount_usd(e.get("text", "")) >= 1_000_000
+                for e in _merged_budget
+            )
+            if _has_major:
+                b = parsed_data.get("budget")
+                if isinstance(b, dict):
+                    _cur_val = _amount_usd(b.get("text", ""))
+                    if 0 < _cur_val < 100_000:
+                        _best_big = next(
+                            (e for e in _merged_budget
+                             if _amount_usd(e.get("text", "")) >= 1_000_000 and
+                             not _is_template_placeholder(e.get("text", ""))),
+                            None
+                        )
+                        if _best_big:
+                            b["text"]   = _strip_line_num(_best_big["text"])
+                            b["source"] = _best_big["source"]
+
+            # Rule 2: Requirements — drop entries that are a comma-separated
+            # list of ≥3 PascalCase identifiers (Java/Python class dump, e.g.
+            # "StockMovementRepository, LocationRepository, ShipmentRepository").
+            _PASCAL_TOKEN = re.compile(r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b")
+            def _is_class_list(text: str) -> bool:
+                if "," not in text:
+                    return False
+                tokens = _PASCAL_TOKEN.findall(text)
+                return len(tokens) >= 3
+
+            _reqs = parsed_data.get("requirements")
+            if isinstance(_reqs, list):
+                parsed_data["requirements"] = [
+                    i for i in _reqs
+                    if isinstance(i, dict) and not _is_class_list(i.get("text") or "")
+                ]
+
+            # Rule 3: Architecture vs goals — if `architecture` scalar begins
+            # with a goal-like prefix (Scalability:/Reliability:/Performance:/
+            # Availability:/Developer velocity:), move it into goals and
+            # replace architecture with the best merged architecture candidate.
+            _GOAL_PREFIX = re.compile(
+                r"^(?:Scalability|Reliability|Performance|Availability|"
+                r"Data\s+integrity|Developer\s+velocity|Security|Usability)\s*:",
+                re.IGNORECASE,
+            )
+            _arch = parsed_data.get("architecture")
+            if isinstance(_arch, dict):
+                _atxt = (_arch.get("text") or "").strip()
+                if _GOAL_PREFIX.match(_atxt):
+                    # Push into goals
+                    _goals = parsed_data.setdefault("goals", [])
+                    if isinstance(_goals, list):
+                        _goals.append({
+                            "text":              _atxt,
+                            "source":            _arch.get("source", ""),
+                            "has_conflict":      False,
+                            "conflict_details":  "",
+                        })
+                    # Replace architecture with a better candidate
+                    _best_arch = next(
+                        (e for e in merged.get("architecture", [])
+                         if e.get("text") and
+                         not _GOAL_PREFIX.match(e["text"].strip()) and
+                         not _is_template_placeholder(_strip_line_num(e["text"]))),
+                        None
+                    )
+                    if _best_arch:
+                        _arch["text"]   = _strip_line_num(_best_arch["text"])
+                        _arch["source"] = _best_arch["source"]
+                    else:
+                        _arch["text"]   = "Нет данных"
+                        _arch["source"] = ""
+
+            # Rule 4: Risks — drop bare ADR headers (e.g. "ADR-001: Timeline
+            # Conflict", "ADR-002") that carry no body content.
+            _ADR_HEADER = re.compile(r"^\*{0,2}ADR-\d+\b[^.\n]{0,48}\*{0,2}$",
+                                     re.IGNORECASE)
+            _risks = parsed_data.get("risks")
+            if isinstance(_risks, list):
+                parsed_data["risks"] = [
+                    i for i in _risks
+                    if isinstance(i, dict)
+                    and not (len((i.get("text") or "").strip()) <= 50
+                             and _ADR_HEADER.match((i.get("text") or "").strip()))
+                ]
+
+            # Rule 5: Goals — drop Kubernetes node-pool specs like
+            # "ml-pool g4dn.xlarge" or "spot-pool m6i.2xlarge" that are
+            # infra/architecture details, not project goals.
+            _NODE_POOL = re.compile(
+                r"^[a-z][a-z-]*-pool\s+[a-z0-9]+\.[a-z0-9]+\b",
+                re.IGNORECASE,
+            )
+            _goals = parsed_data.get("goals")
+            if isinstance(_goals, list):
+                parsed_data["goals"] = [
+                    i for i in _goals
+                    if isinstance(i, dict)
+                    and not _NODE_POOL.match((i.get("text") or "").strip())
+                ]
+
             # Conflict flags: always trust Python detection over the model.
             # Also fix the common mistake where the model writes the conflict
             # description into the "text" field instead of the actual value.
