@@ -1,0 +1,127 @@
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "project_spec",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "project_overview": {
+          "type": "string"
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "source": { "type": "string" },
+              "has_conflict": { "type": "boolean" },
+              "conflict_details": { "type": "string" }
+            },
+            "required": ["text", "source", "has_conflict", "conflict_details"],
+            "additionalProperties": false
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "source": { "type": "string" },
+              "has_conflict": { "type": "boolean" },
+              "conflict_details": { "type": "string" }
+            },
+            "required": ["text", "source", "has_conflict", "conflict_details"],
+            "additionalProperties": false
+          }
+        },
+        "technical_solution": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "source": { "type": "string" },
+            "has_conflict": { "type": "boolean" },
+            "conflict_details": { "type": "string" }
+          },
+          "required": ["text", "source", "has_conflict", "conflict_details"],
+          "additionalProperties": false
+        },
+        "architecture": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "source": { "type": "string" },
+            "has_conflict": { "type": "boolean" },
+            "conflict_details": { "type": "string" }
+          },
+          "required": ["text", "source", "has_conflict", "conflict_details"],
+          "additionalProperties": false
+        },
+        "team": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "source": { "type": "string" },
+              "has_conflict": { "type": "boolean" },
+              "conflict_details": { "type": "string" }
+            },
+            "required": ["text", "source", "has_conflict", "conflict_details"],
+            "additionalProperties": false
+          }
+        },
+        "timeline": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "source": { "type": "string" },
+            "has_conflict": { "type": "boolean" },
+            "conflict_details": { "type": "string" }
+          },
+          "required": ["text", "source", "has_conflict", "conflict_details"],
+          "additionalProperties": false
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "source": { "type": "string" },
+            "has_conflict": { "type": "boolean" },
+            "conflict_details": { "type": "string" }
+          },
+          "required": ["text", "source", "has_conflict", "conflict_details"],
+          "additionalProperties": false
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "source": { "type": "string" },
+              "has_conflict": { "type": "boolean" },
+              "conflict_details": { "type": "string" }
+            },
+            "required": ["text", "source", "has_conflict", "conflict_details"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "project_overview",
+        "goals",
+        "requirements",
+        "technical_solution",
+        "architecture",
+        "team",
+        "timeline",
+        "budget",
+        "risks"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

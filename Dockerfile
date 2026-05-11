@@ -4,9 +4,12 @@ WORKDIR /app
 
 # Install dependencies first (layer cache)
 COPY requirements.txt .
+RUN apt-get update && apt-get install -y fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy app code
+COPY app/ ./app/
+COPY tests/ ./tests/
 COPY main.py .
 
 # LM Studio runs on the host — override via env var at runtime:

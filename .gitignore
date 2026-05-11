@@ -192,3 +192,4 @@ cython_debug/
 .cursorindexingignore
 # Claude Code local config / skills
 .claude/
+.agent/

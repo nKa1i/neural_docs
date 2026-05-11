@@ -1,9 +1,0 @@
-{
-  "player": {
-    "base_hp": 100,
-    "possession_duration_sec": 15,
-    "mechanics": ["dash", "parry", "possess"]
-  },
-  "engine": "Godot 4",
-  "language": "GDScript"
-}
