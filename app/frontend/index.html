@@ -1,1226 +1,1486 @@
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="en">
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NeuralDocs AI — Documentation Intelligence</title>
+<title>NeuralDocs AI</title>
 
 <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
 <style type="text/tailwindcss">
-  @theme {
-    --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, monospace;
-
-    --color-ink:       #0F172A;
-    --color-ink2:      #1E293B;
-    --color-ink3:      #334155;
-    --color-mute:      #64748B;
-    --color-mute2:     #94A3B8;
-    --color-line:      #E2E8F0;
-    --color-line2:     #CBD5E1;
-    --color-surface:   #FFFFFF;
-    --color-canvas:    #F8FAFC;
-    --color-canvas2:   #F1F5F9;
-    --color-brand:     #0369A1;
-    --color-brandDark: #075985;
-    --color-brandSoft: #E0F2FE;
-    --color-warn:      #B45309;
-    --color-warnSoft:  #FEF3C7;
-    --color-ok:        #15803D;
-    --color-okSoft:    #DCFCE7;
-
-    --shadow-card: 0 1px 0 0 rgba(15,23,42,0.04), 0 1px 2px 0 rgba(15,23,42,0.04);
-    --shadow-pop:  0 12px 32px -8px rgba(15,23,42,0.18), 0 4px 12px -4px rgba(15,23,42,0.08);
-
-    --tracking-tightish: -0.012em;
-  }
+@theme {
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-ink:       #0F172A;
+  --color-ink2:      #1E293B;
+  --color-ink3:      #334155;
+  --color-mute:      #64748B;
+  --color-mute2:     #94A3B8;
+  --color-line:      #E2E8F0;
+  --color-surface:   #FFFFFF;
+  --color-canvas:    #F8FAFC;
+  --color-canvas2:   #F1F5F9;
+  --color-brand:     #0369A1;
+  --color-brandDark: #075985;
+  --color-brandSoft: #E0F2FE;
+  --color-warn:      #B45309;
+  --color-warnSoft:  #FEF3C7;
+  --color-ok:        #15803D;
+  --color-okSoft:    #DCFCE7;
+}
 </style>
+
 <style>
-  html, body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-  body { background: #F8FAFC; color: #0F172A; letter-spacing: -0.005em; }
+/* ── BASE ── */
+html, body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+body { background: #F8FAFC; color: #0F172A; letter-spacing: -0.005em; margin: 0; }
 
-  /* dotted grid for upload zone */
-  .dotted-grid {
-    background-image: radial-gradient(#CBD5E1 1px, transparent 1px);
-    background-size: 14px 14px;
-    background-position: 0 0;
-  }
+:root {
+  --conflict-bg:   #FEF3C7;
+  --conflict-text: #92400E;
+  --text-muted:    #94A3B8;
+}
 
-  /* spinner */
-  @keyframes spin360 { to { transform: rotate(360deg); } }
-  .spin { animation: spin360 1s linear infinite; }
+/* ── ANIMATIONS ── */
+@keyframes spin360    { to { transform: rotate(360deg); } }
+@keyframes shimmer    { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+@keyframes pulse-ring { 0% { transform: scale(0.82); opacity: 0.4; } 100% { transform: scale(1.55); opacity: 0; } }
+@keyframes viewIn     { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes slideRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes fadeUp     { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in    { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-  /* progress bar shimmer */
-  @keyframes shimmer { 0% { background-position: -200px 0;} 100% { background-position: 200px 0;} }
-  .shimmer {
-    background: linear-gradient(90deg, #0369A1 0%, #38BDF8 50%, #0369A1 100%);
-    background-size: 200px 100%;
-    animation: shimmer 1.6s linear infinite;
-  }
+.spin { animation: spin360 0.9s linear infinite; }
+.t    { transition: all 180ms cubic-bezier(.4,0,.2,1); }
+.fade-in { animation: fade-in 300ms ease both; }
 
-  /* dashed border with custom dash */
-  .dashed-zone {
-    background-image:
-      repeating-linear-gradient(0deg, #CBD5E1 0 8px, transparent 8px 16px),
-      repeating-linear-gradient(90deg, #CBD5E1 0 8px, transparent 8px 16px),
-      repeating-linear-gradient(180deg, #CBD5E1 0 8px, transparent 8px 16px),
-      repeating-linear-gradient(270deg, #CBD5E1 0 8px, transparent 8px 16px);
-    background-position: 0 0, 0 0, 100% 0, 0 100%;
-    background-size: 2px 100%, 100% 2px, 2px 100%, 100% 2px;
-    background-repeat: no-repeat;
-  }
+/* ── VIEW SWITCH ── */
+.view { display: none; }
+.view.active { display: block; animation: viewIn 240ms cubic-bezier(.2,.7,.2,1); }
+.tab-active { background: #F1F5F9; color: #0F172A !important; }
 
-  /* base transition */
-  .t { transition: all 180ms cubic-bezier(.4,0,.2,1); }
+/* ── DROP ZONE ── */
+.dashed-zone {
+  background-image:
+    repeating-linear-gradient(0deg,   #CBD5E1 0 7px, transparent 7px 15px),
+    repeating-linear-gradient(90deg,  #CBD5E1 0 7px, transparent 7px 15px),
+    repeating-linear-gradient(180deg, #CBD5E1 0 7px, transparent 7px 15px),
+    repeating-linear-gradient(270deg, #CBD5E1 0 7px, transparent 7px 15px);
+  background-position: 0 0, 0 0, 100% 0, 0 100%;
+  background-size: 2px 100%, 100% 2px, 2px 100%, 100% 2px;
+  background-repeat: no-repeat;
+}
+kbd {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  background: #fff; border: 1px solid #E2E8F0; border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 5px; color: #334155;
+}
 
-  /* state switcher pill */
-  .state-pill[aria-current="true"] {
-    background: #0F172A;
-    color: #fff;
-  }
+/* ── PHASE STEPPER ── */
+.stepper { display: flex; padding: 8px 0; }
+.stepper-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
+.stepper-step:not(:last-child)::after {
+  content: ''; position: absolute; top: 19px;
+  left: calc(50% + 24px); width: calc(100% - 48px);
+  height: 2px; background: #E2E8F0; border-radius: 1px; transition: background 500ms ease;
+}
+.stepper-step.complete:not(:last-child)::after { background: #15803D; }
+.stepper-circle {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; z-index: 1;
+  border: 2px solid #E2E8F0; background: #fff; color: #CBD5E1; transition: all 350ms ease;
+}
+.stepper-step.complete .stepper-circle { background: #DCFCE7; border-color: #15803D; color: #15803D; }
+.stepper-step.active  .stepper-circle { background: #E0F2FE; border-color: #0369A1; color: #0369A1; }
+.stepper-step.active .stepper-circle::before {
+  content: ''; position: absolute; inset: -6px; border-radius: 50%;
+  border: 2px solid #0369A1; opacity: 0; animation: pulse-ring 1.7s ease-out infinite;
+}
+.stepper-label    { margin-top: 10px; font-size: 12.5px; font-weight: 700; color: #0F172A; text-align: center; }
+.stepper-sublabel { font-size: 11px; color: #64748B; text-align: center; margin-top: 2px; line-height: 1.45; }
+.stepper-step.pending .stepper-label    { color: #CBD5E1; }
+.stepper-step.pending .stepper-sublabel { color: #E2E8F0; }
 
-  /* keyboard hint */
-  kbd {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10.5px;
-    background: #fff;
-    border: 1px solid #E2E8F0;
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    padding: 1px 5px;
-    color: #334155;
-  }
+/* ── FILE PROGRESS ITEMS ── */
+.fp-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; margin-bottom: 3px; transition: background 200ms; }
+.fp-item.done       { background: #F0FDF4; }
+.fp-item.processing { background: #EFF6FF; }
+.fp-item.pending    { opacity: 0.4; }
+.fp-spinner { width: 16px; height: 16px; min-width: 16px; flex-shrink: 0; border-radius: 50%; border: 2px solid #BFDBFE; border-top-color: #0369A1; animation: spin360 0.8s linear infinite; }
+.fp-check { width: 16px; height: 16px; min-width: 16px; flex-shrink: 0; background: #15803D; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.fp-check svg { width: 9px; height: 9px; }
+.fp-dot { width: 16px; height: 16px; min-width: 16px; flex-shrink: 0; border: 2px solid #E2E8F0; border-radius: 50%; }
+.fp-name       { font-size: 13px; font-weight: 600; color: #0F172A; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-name.muted { color: #94A3B8; }
+.fp-tokens     { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #64748B; white-space: nowrap; }
 
-  /* diff highlight */
-  .diff-strike { text-decoration: line-through; text-decoration-color: #B45309; text-decoration-thickness: 1.5px; }
+.shimmer-bar {
+  background: linear-gradient(90deg, #0369A1 0%, #38BDF8 50%, #0369A1 100%);
+  background-size: 400px 100%; animation: shimmer 1.8s linear infinite; transition: width 400ms ease;
+}
 
-  /* fade between views */
-  .view { display: none; }
-  .view.active { display: block; animation: viewIn 260ms cubic-bezier(.2,.7,.2,1); }
-  @keyframes viewIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* ── RESULT SECTIONS ── */
+.result-section {
+  background: #fff; border: 1px solid #E2E8F0; border-radius: 12px;
+  padding: 20px 24px; margin-bottom: 10px; transition: box-shadow 180ms ease;
+  animation: fadeUp 260ms cubic-bezier(.2,.7,.2,1) both;
+}
+.result-section:hover { box-shadow: 0 1px 6px rgba(15,23,42,0.07); }
+.result-section.has-conflict,
+.result-section.conflict-section { border-left: 3px solid #F59E0B; padding-left: 21px; }
+.result-section h3 {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em;
+  color: #64748B; margin: 0 0 14px; display: flex; align-items: center; justify-content: space-between;
+}
+.result-section h3 .conflict-badge {
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em;
+  background: #FEF3C7; color: #B45309; padding: 2px 7px; border-radius: 4px;
+}
+.result-section p  { font-size: 14px; line-height: 1.75; color: #334155; margin: 0 0 6px; }
+.result-section p:last-child { margin-bottom: 0; }
+.result-section ul { padding-left: 20px; margin: 0; }
+.result-section li { font-size: 14px; line-height: 1.75; color: #334155; margin-bottom: 6px; }
+.result-section li:last-child { margin-bottom: 0; }
 
-  /* table-ish row hover */
-  .row-hover:hover { background: #F8FAFC; }
+.source-badge {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 600; font-family: 'JetBrains Mono', monospace;
+  background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0;
+  padding: 2px 7px 2px 6px; border-radius: 4px; margin-left: 7px;
+  vertical-align: middle; letter-spacing: 0;
+}
 
-  /* subtle inset */
-  .inset-line { box-shadow: inset 0 -1px 0 0 #E2E8F0; }
+.conflict-inline {
+  margin-top: 10px; background: var(--conflict-bg, #FEF3C7);
+  border-left: 3px solid #F59E0B; padding: 10px 14px;
+  font-size: 13px; color: var(--conflict-text, #92400E);
+  border-radius: 0 6px 6px 0; cursor: pointer;
+  transition: background 150ms; display: flex; align-items: flex-start; gap: 10px;
+}
+.conflict-inline:hover { background: #FDE68A; }
+.conflict-inline strong { display: block; font-size: 11.5px; font-weight: 700; margin-bottom: 3px; }
+.conflict-cta {
+  margin-left: auto; font-size: 11.5px; font-weight: 700; color: #B45309;
+  white-space: nowrap; align-self: center;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+
+.conflict-banner {
+  background: #FEF3C7; border: 1.5px solid #F59E0B; border-radius: 10px;
+  padding: 14px 18px; margin-bottom: 14px;
+}
+.conflict-banner strong { font-size: 15px; color: #92400E; font-weight: 700; display: block; margin-bottom: 4px; }
+.conflict-banner p  { font-size: 13px; color: #B45309; margin: 0; }
+.conflict-banner ul { padding-left: 18px; margin: 8px 0 0; color: #92400E; font-size: 13px; }
+
+#meta-content {
+  font-size: 12px; color: #64748B; font-family: 'JetBrains Mono', monospace;
+  background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;
+  padding: 12px 16px; margin-top: 12px; line-height: 1.9;
+}
+#meta-content strong { color: #0F172A; }
+
+/* ── CONFLICT SLIDE-OVER MODAL ── */
+#conflict-modal {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(4px);
+  justify-content: flex-end;
+}
+.modal-panel {
+  width: 480px; max-width: 90vw; height: 100%;
+  background: #fff; display: flex; flex-direction: column;
+  box-shadow: -16px 0 48px rgba(15, 23, 42, 0.14);
+  animation: slideRight 300ms cubic-bezier(.4,0,.2,1); overflow-y: auto;
+}
+.modal-header {
+  position: sticky; top: 0; z-index: 10; background: #fff;
+  padding: 20px 24px 16px; border-bottom: 1px solid #E2E8F0;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+}
+.modal-body { padding: 24px; flex: 1; overflow-y: auto; }
+
+.diff-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+.diff-box.highlight { background: #FEF3C7; border-color: #FCD34D; }
+.diff-box h4 {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em;
+  color: #64748B; margin: 0 0 10px; font-family: 'JetBrains Mono', monospace;
+}
+.diff-box.highlight h4 { color: #B45309; }
+.diff-box p             { font-size: 13.5px; color: #334155; line-height: 1.65; margin: 0; }
+.diff-box.highlight p   { color: #92400E; }
+
+/* ── ARCHIVE TABLE ── */
+.ar-head, .ar-row-item {
+  display: grid; grid-template-columns: 1fr 80px 150px 130px 110px 40px;
+  gap: 16px; padding: 0 24px; align-items: center;
+}
+.ar-head { height: 44px; background: #F8FAFC; border-bottom: 1px solid #E2E8F0; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #64748B; }
+.ar-row-item { min-height: 64px; cursor: pointer; border-bottom: 1px solid #E2E8F0; transition: background 150ms; }
+.ar-row-item:last-child { border-bottom: none; }
+.ar-row-item:hover { background: #F8FAFC; }
+
+.archive-empty { padding: 72px 24px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.ar-empty-icon { width: 56px; height: 56px; border-radius: 14px; background: #F1F5F9; border: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: center; color: #CBD5E1; margin-bottom: 6px; }
+
+/* ── PROGRESS PILL ── */
+#progress-pill {
+  display: none;
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 100;
+  width: 320px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 28px rgba(15,23,42,0.13);
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+#progress-pill.pill-visible { display: flex; }
+#progress-pill:hover { box-shadow: 0 10px 32px rgba(15,23,42,0.18); }
 </style>
 </head>
 
 <body class="min-h-screen">
 
-<!-- ============================================================
-     ICONS — Lucide-style inline SVGs as <template> for reuse
-============================================================ -->
-<template id="i-brain">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path></svg>
-</template>
-<template id="i-upload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></template>
-<template id="i-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path></svg></template>
-<template id="i-file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></template>
-<template id="i-download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></template>
-<template id="i-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></template>
-<template id="i-alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></template>
-<template id="i-clock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></template>
-<template id="i-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></template>
-<template id="i-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path><circle cx="12" cy="12" r="3"></circle></svg></template>
-<template id="i-x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></template>
-<template id="i-arrow-right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></template>
-<template id="i-dot"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"></circle></svg></template>
-<template id="i-dollar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></template>
-<template id="i-users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></template>
-<template id="i-calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg></template>
-<template id="i-target"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg></template>
-<template id="i-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg></template>
-<template id="i-map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg></template>
-<template id="i-sparkle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"></path><path d="M19 17v4"></path><path d="M17 19h4"></path></svg></template>
-<template id="i-bell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></template>
-<template id="i-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></template>
-<template id="i-trash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></template>
-<template id="i-share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg></template>
+<!-- ══ SVG ICON TEMPLATES ══ -->
+<template id="i-brain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/></svg></template>
+<template id="i-upload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></template>
+<template id="i-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></template>
+<template id="i-file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></template>
+<template id="i-download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></template>
+<template id="i-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></template>
+<template id="i-alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></template>
+<template id="i-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></template>
+<template id="i-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/><circle cx="12" cy="12" r="3"/></svg></template>
+<template id="i-x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></template>
+<template id="i-arrow-right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></template>
+<template id="i-sparkle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4"/><path d="M17 19h4"/></svg></template>
+<template id="i-bell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></template>
+<template id="i-share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></template>
+<template id="i-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></template>
+<template id="i-parse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></template>
+<template id="i-map-phase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1"/><rect x="16" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M5 9v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M12 13v2"/></svg></template>
+<template id="i-reduce"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 16v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/><path d="m9 12 3 3 3-3"/><line x1="12" y1="5" x2="12" y2="15"/></svg></template>
+<template id="i-finalize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></template>
 
-<!-- ============================================================
-     TOP HEADER
-============================================================ -->
-<header class="sticky top-0 z-30 bg-surface/85 backdrop-blur-md border-b border-line">
-  <div class="max-w-[1280px] mx-auto px-8 h-[64px] flex items-center justify-between">
-    <!-- Brand + Tabs -->
-    <div class="flex items-center gap-8">
-      <div class="flex items-center gap-2.5">
-        
-        <div class="leading-none">
-          <div class="font-extrabold text-[15.5px] tracking-tightish text-ink">NeuralDocs<span class="text-brand">.</span></div>
-          <div class="text-[10.5px] font-medium text-mute tracking-[0.08em] uppercase mt-0.5">Documentation Intelligence</div>
+<!-- ══ CONFLICT SLIDE-OVER MODAL ══ -->
+<div id="conflict-modal" style="display:none;" onclick="closeModalOnOverlay(event)">
+  <div class="modal-panel" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#B45309] mb-1 flex items-center gap-1.5">
+          <span class="h-3 w-3 inline-block" data-icon="i-alert"></span> Conflict details
         </div>
+        <div id="modal-field-name" class="text-[17px] font-extrabold text-[#0F172A] leading-tight"></div>
       </div>
+      <button onclick="closeConflictModal()" class="h-8 w-8 rounded-[7px] bg-[#F1F5F9] text-[#64748B] grid place-items-center hover:bg-[#E2E8F0] t flex-shrink-0">
+        <span class="h-4 w-4 block" data-icon="i-x"></span>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="text-[12px] text-[#64748B] mb-4 leading-relaxed">Two or more source files make conflicting claims about this field. The <span class="font-semibold text-[#B45309]">highlighted entry</span> is the one that differs from the majority.</p>
+      <div id="diff-container"></div>
+      <div class="mt-6 pt-5 border-t border-[#E2E8F0] flex items-center gap-2">
+        <button onclick="closeConflictModal()" class="flex-1 h-9 rounded-[8px] border border-[#E2E8F0] text-[12.5px] font-semibold text-[#334155] hover:bg-[#F1F5F9] t">Dismiss</button>
+        <button onclick="markConflictResolved()" class="flex-1 h-9 rounded-[8px] bg-[#0369A1] text-white text-[12.5px] font-semibold hover:bg-[#075985] t">Mark as resolved</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-      <nav class="flex items-center gap-1 ml-2">
-        <button data-tab="upload" class="tab t group flex items-center gap-2 px-3.5 h-9 rounded-[8px] text-[13.5px] font-semibold text-mute hover:text-ink hover:bg-canvas2 whitespace-nowrap">
-          <span class="h-4 w-4 shrink-0" data-icon="i-upload"></span>
-          Create Document
+<!-- ══ HEADER ══ -->
+<header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-[#E2E8F0]">
+  <div class="max-w-[1280px] mx-auto px-8 h-16 flex items-center justify-between">
+    <div class="flex items-center gap-8">
+      <button type="button" aria-label="Go to home" onclick="clearPipelineGhost(); go('upload')" class="flex items-center gap-2.5 cursor-pointer hover:opacity-80 t text-left">
+        <div class="h-8 w-8 rounded-[8px] bg-[#0F172A] text-white flex items-center justify-center">
+          <span class="h-[18px] w-[18px] block" data-icon="i-brain"></span>
+        </div>
+        <div class="leading-none">
+          <div class="font-extrabold text-[15px] text-[#0F172A]">NeuralDocs<span class="text-[#0369A1]">.</span></div>
+          <div class="text-[10px] font-semibold text-[#94A3B8] tracking-[0.08em] uppercase mt-0.5">Documentation Intelligence</div>
+        </div>
+      </button>
+      <nav class="flex items-center gap-1">
+        <button data-tab="upload" class="nav-tab t flex items-center gap-2 px-3.5 h-9 rounded-[8px] text-[13px] font-semibold text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9] whitespace-nowrap">
+          <span class="h-4 w-4 shrink-0" data-icon="i-upload"></span>Create Document
         </button>
-        <button data-tab="archive" class="tab t group flex items-center gap-2 px-3.5 h-9 rounded-[8px] text-[13.5px] font-semibold text-mute hover:text-ink hover:bg-canvas2 whitespace-nowrap">
-          <span class="h-4 w-4 shrink-0" data-icon="i-folder"></span>
-          Load from Archive
-          <span class="ml-1 text-[10.5px] font-bold bg-canvas2 text-mute px-1.5 py-0.5 rounded shrink-0">24</span>
+        <button data-tab="archive" class="nav-tab t flex items-center gap-2 px-3.5 h-9 rounded-[8px] text-[13px] font-semibold text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9] whitespace-nowrap">
+          <span class="h-4 w-4 shrink-0" data-icon="i-folder"></span>Load from Archive
+          <span class="ml-1 text-[10px] font-bold bg-[#F1F5F9] text-[#64748B] px-1.5 py-0.5 rounded shrink-0" id="archive-tab-count">0</span>
         </button>
       </nav>
     </div>
-
-    <!-- Right utilities -->
     <div class="flex items-center gap-2">
-      <div class="hidden md:flex items-center gap-2 bg-canvas border border-line rounded-[8px] px-3 h-9 w-[260px] t hover:border-line2">
-        <span class="h-4 w-4 text-mute2" data-icon="i-search"></span>
-        <input class="bg-transparent text-[13px] outline-none flex-1 placeholder:text-mute2" placeholder="Search documents, conflicts…">
-        <kbd>⌘K</kbd>
-      </div>
-      <button class="h-9 w-9 grid place-items-center rounded-[8px] text-mute hover:text-ink hover:bg-canvas2 t relative">
+      <button class="h-9 w-9 grid place-items-center rounded-[8px] text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9] t relative">
         <span class="h-[18px] w-[18px]" data-icon="i-bell"></span>
-        <span class="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-brand"></span>
+        <span class="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-[#0369A1]"></span>
       </button>
-      <button class="h-9 w-9 grid place-items-center rounded-[8px] text-mute hover:text-ink hover:bg-canvas2 t">
+      <button class="h-9 w-9 grid place-items-center rounded-[8px] text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9] t">
         <span class="h-[18px] w-[18px]" data-icon="i-settings"></span>
       </button>
-      <div class="h-6 w-px bg-line mx-1"></div>
+      <div class="h-5 w-px bg-[#E2E8F0] mx-1"></div>
       <div class="flex items-center gap-2.5">
-        <div class="h-8 w-8 rounded-full bg-ink2 text-white text-[12px] font-bold grid place-items-center">EM</div>
+        <div class="h-8 w-8 rounded-full bg-[#1E293B] text-white text-[11.5px] font-bold grid place-items-center">ND</div>
         <div class="leading-tight">
-          <div class="text-[12.5px] font-semibold text-ink">Elena Marsh</div>
-          <div class="text-[10.5px] text-mute">Arcadia Labs · Pro</div>
+          <div class="text-[12.5px] font-semibold text-[#0F172A]">NeuralDocs AI</div>
+          <div class="text-[10.5px] text-[#64748B]">Local · LM Studio</div>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- Sub-bar / breadcrumb-ish context -->
-  <div class="max-w-[1280px] mx-auto px-8 h-[44px] flex items-center justify-between border-t border-line/70">
-    <div class="flex items-center gap-2 text-[12.5px] text-mute">
-      <span class="font-semibold text-ink">Workspaces</span>
-      <span class="text-mute2">/</span>
-      <span>Arcadia Labs</span>
-      <span class="text-mute2">/</span>
-      <span class="font-semibold text-ink">Orion Migration Brief</span>
-      <span class="ml-3 inline-flex items-center gap-1.5 bg-okSoft text-ok text-[10.5px] font-bold uppercase tracking-wider px-2 py-0.5 rounded">
-        <span class="h-1.5 w-1.5 rounded-full bg-ok"></span> Active session
+  <div class="max-w-[1280px] mx-auto px-8 h-[42px] flex items-center justify-between border-t border-[#E2E8F0]/70">
+    <div class="flex items-center gap-2 text-[12.5px] text-[#64748B]">
+      <span class="font-semibold text-[#0F172A]">Workspace</span>
+      <span class="text-[#CBD5E1]">/</span>
+      <span id="breadcrumb-project" class="font-semibold text-[#0F172A]">New Analysis</span>
+      <span class="ml-3 inline-flex items-center gap-1.5 bg-[#DCFCE7] text-[#15803D] text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded">
+        <span class="h-1.5 w-1.5 rounded-full bg-[#15803D]"></span> Active
       </span>
     </div>
-    <div class="flex items-center gap-3 text-[12px] text-mute">
-      <span>Last analysis <span class="text-ink font-semibold">2 min ago</span></span>
-      <span class="text-mute2">·</span>
-      <span>Tokens used <span class="text-ink font-semibold font-mono">128,442</span> / 500k</span>
+    <div class="flex items-center gap-3 text-[11.5px] text-[#64748B]">
+      <span id="token-display" class="hidden">Tokens <span class="text-[#0F172A] font-semibold font-mono" id="header-tokens">0</span></span>
     </div>
   </div>
 </header>
 
-<!-- ============================================================
-     STATE SWITCHER — small floating utility so users can see all 4 states
-============================================================ -->
-<div class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40">
-  <div class="bg-ink text-white rounded-full shadow-pop pl-2 pr-2 py-1.5 flex items-center gap-1 border border-ink2">
-    <span class="text-[10px] font-bold tracking-[0.14em] uppercase text-mute2 pl-2 pr-1">View</span>
-    <button data-state="upload" class="state-pill t text-[12px] font-semibold px-3 h-7 rounded-full text-mute2 hover:text-white">1 · Upload</button>
-    <button data-state="processing" class="state-pill t text-[12px] font-semibold px-3 h-7 rounded-full text-mute2 hover:text-white">2 · Processing</button>
-    <button data-state="results" class="state-pill t text-[12px] font-semibold px-3 h-7 rounded-full text-mute2 hover:text-white">3 · Results</button>
-    <button data-state="archive" class="state-pill t text-[12px] font-semibold px-3 h-7 rounded-full text-mute2 hover:text-white">4 · Archive</button>
-  </div>
-</div>
 
-<!-- ============================================================
-     MAIN
-============================================================ -->
-<main class="max-w-[1280px] mx-auto px-8 pt-10 pb-32">
+<!-- ══ MAIN ══ -->
+<main class="max-w-[1280px] mx-auto px-8 pt-10 pb-36">
 
-  <!-- ========== STATE 1 · UPLOAD ========== -->
-  <section class="view" data-view="upload">
-    <div class="grid grid-cols-12 gap-10">
-      <!-- Left: intro + zone -->
-      <div class="col-span-12 lg:col-span-8">
-        <div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand mb-3">
-          <span class="h-3.5 w-3.5" data-icon="i-sparkle"></span> New analysis
-        </div>
-        <h1 class="font-extrabold text-[44px] leading-[1.05] tracking-tightish text-ink">
-          Drop in your project docs.<br>
-          <span class="text-mute">Get every contradiction, surfaced.</span>
-        </h1>
-        <p class="mt-4 text-[15px] text-ink3 max-w-[560px] leading-relaxed">
-          NeuralDocs reads briefs, SOWs, design specs, and stakeholder notes — then cross-references every claim to find the places your sources disagree.
-        </p>
+<!-- ══ SCREEN 1 · UPLOAD ══ -->
+<section class="view" data-view="upload">
+  <div class="grid grid-cols-12 gap-10">
+
+    <!-- Left column -->
+    <div class="col-span-12 lg:col-span-8">
+      <div class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#0369A1] mb-3">
+        <span class="h-3.5 w-3.5" data-icon="i-sparkle"></span> New analysis
+      </div>
+      <h1 class="font-extrabold text-[42px] leading-[1.06] text-[#0F172A]" style="letter-spacing:-0.02em">
+        Drop in your project docs.<br>
+        <span class="text-[#94A3B8]">Get every contradiction, surfaced.</span>
+      </h1>
+      <p class="mt-4 text-[15px] text-[#475569] max-w-[540px] leading-relaxed">
+        NeuralDocs reads briefs, SOWs, design specs, and stakeholder notes — then cross-references every claim to find the places your sources disagree.
+      </p>
+
+      <form id="upload-form" class="mt-8">
+        <input type="file" id="json-file-input" accept=".json" style="display:none">
+        <input type="file" id="file-input" name="files" multiple accept=".txt,.md,.json,.py,.java,.docx,.pdf" style="display:none">
 
         <!-- Drop zone -->
-        <div class="mt-8 relative">
-          
-          <form id="upload-form">
-          <input type="file" id="json-file-input" accept=".json" style="display:none">
-          <input type="file" id="file-input" name="files" multiple accept=".txt,.md,.json,.py,.java,.docx,.pdf" style="display:none">
-          <div id="drop-zone" onclick="document.getElementById('file-input').click()" class="dashed-zone bg-canvas/60 rounded-[14px] p-10 t hover:bg-brandSoft/40 cursor-pointer group">
-
-            <div class="flex flex-col items-center text-center">
-              <div class="h-14 w-14 rounded-[14px] bg-surface border border-line shadow-card grid place-items-center mb-5 group-hover:border-brand t">
-                <span class="h-6 w-6 text-ink group-hover:text-brand t" data-icon="i-upload"></span>
-              </div>
-              <div class="text-[20px] font-bold text-ink mb-2">Drop files here, or <span class="text-brand underline decoration-2 underline-offset-4">browse</span></div><div class="text-[14px] text-ink2 mb-4" onclick="event.stopPropagation(); document.getElementById('json-file-input').click()">Or <span class="text-brand underline cursor-pointer">load a .json result file</span></div>
-              <div class="text-[13px] text-mute mt-2">Up to 25 files · 50&nbsp;MB each · Encrypted at rest</div>
-
-              <div class="mt-6 flex flex-wrap items-center justify-center gap-1.5">
-                <span class="px-2.5 py-1 rounded-[6px] bg-surface border border-line text-[11.5px] font-semibold text-ink3 font-mono">.TXT</span>
-                <span class="px-2.5 py-1 rounded-[6px] bg-surface border border-line text-[11.5px] font-semibold text-ink3 font-mono">.MD</span>
-                <span class="px-2.5 py-1 rounded-[6px] bg-surface border border-line text-[11.5px] font-semibold text-ink3 font-mono">.JSON</span>
-                <span class="px-2.5 py-1 rounded-[6px] bg-surface border border-line text-[11.5px] font-semibold text-ink3 font-mono">.PDF</span>
-                <span class="px-2.5 py-1 rounded-[6px] bg-surface border border-line text-[11.5px] font-semibold text-ink3 font-mono">.DOCX</span>
-              </div>
+        <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+             class="dashed-zone bg-[#F8FAFC]/60 rounded-[14px] p-10 t hover:bg-[#E0F2FE]/30 cursor-pointer group">
+          <div class="flex flex-col items-center text-center">
+            <div class="h-14 w-14 rounded-[12px] bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(15,23,42,0.06)] grid place-items-center mb-5 group-hover:border-[#0369A1] t">
+              <span class="h-6 w-6 text-[#0F172A] group-hover:text-[#0369A1] t" data-icon="i-upload"></span>
+            </div>
+            <div class="text-[19px] font-bold text-[#0F172A]">Drop files here, or <span class="text-[#0369A1] underline decoration-2 underline-offset-3">browse</span></div>
+            <div class="text-[13px] text-[#64748B] mt-2">Up to 25 files · 50 MB each · Encrypted at rest</div>
+            <div class="mt-5 text-[13px] text-[#94A3B8]" onclick="event.stopPropagation(); document.getElementById('json-file-input').click()">
+              Or <span class="text-[#0369A1] underline cursor-pointer">load a .json result file</span>
+            </div>
+            <div class="mt-5 flex flex-wrap items-center justify-center gap-1.5">
+              <span class="px-2.5 py-1 rounded-[5px] bg-white border border-[#E2E8F0] text-[11px] font-semibold text-[#475569] font-mono">.TXT</span>
+              <span class="px-2.5 py-1 rounded-[5px] bg-white border border-[#E2E8F0] text-[11px] font-semibold text-[#475569] font-mono">.MD</span>
+              <span class="px-2.5 py-1 rounded-[5px] bg-white border border-[#E2E8F0] text-[11px] font-semibold text-[#475569] font-mono">.JSON</span>
+              <span class="px-2.5 py-1 rounded-[5px] bg-white border border-[#E2E8F0] text-[11px] font-semibold text-[#475569] font-mono">.PDF</span>
+              <span class="px-2.5 py-1 rounded-[5px] bg-white border border-[#E2E8F0] text-[11px] font-semibold text-[#475569] font-mono">.DOCX</span>
             </div>
           </div>
+        </div>
 
-          <!-- Queued files preview (above the CTA) -->
-          <div class="mt-5 bg-surface border border-line rounded-[12px] divide-y divide-line">
+        <!-- Staged files list (populated by JS) -->
+        <div id="staged-files-container" class="mt-4" style="display:none">
+          <div class="bg-white border border-[#E2E8F0] rounded-[12px] divide-y divide-[#E2E8F0]">
             <div class="px-5 py-3 flex items-center justify-between">
-              <div class="text-[12.5px] font-semibold text-ink">3 files staged <span class="text-mute font-normal">· ready to analyze</span></div>
-              <button class="text-[12px] font-semibold text-mute hover:text-ink t">Clear all</button>
+              <div id="staged-count" class="text-[12.5px] font-semibold text-[#0F172A]"></div>
+              <button type="button" onclick="clearAllFiles()" class="text-[12px] font-semibold text-[#64748B] hover:text-[#0F172A] t">Clear all</button>
             </div>
-            <!-- file rows -->
-            <div class="px-5 py-3 flex items-center gap-3 row-hover t">
-              <span class="h-4 w-4 text-mute" data-icon="i-file"></span>
-              <div class="flex-1 min-w-0">
-                <div class="text-[13px] font-semibold text-ink truncate">orion-product-brief-v3.docx</div>
-                <div class="text-[11px] text-mute font-mono">412 KB · DOCX</div>
-              </div>
-              <span class="text-[11px] font-bold uppercase tracking-wider text-ok bg-okSoft px-2 py-0.5 rounded">Parsed</span>
-              <button class="h-7 w-7 grid place-items-center rounded text-mute2 hover:text-warn hover:bg-canvas2 t"><span class="h-4 w-4" data-icon="i-x"></span></button>
-            </div>
-            <div class="px-5 py-3 flex items-center gap-3 row-hover t">
-              <span class="h-4 w-4 text-mute" data-icon="i-file"></span>
-              <div class="flex-1 min-w-0">
-                <div class="text-[13px] font-semibold text-ink truncate">stakeholder-notes-aug22.md</div>
-                <div class="text-[11px] text-mute font-mono">18 KB · MARKDOWN</div>
-              </div>
-              <span class="text-[11px] font-bold uppercase tracking-wider text-ok bg-okSoft px-2 py-0.5 rounded">Parsed</span>
-              <button class="h-7 w-7 grid place-items-center rounded text-mute2 hover:text-warn hover:bg-canvas2 t"><span class="h-4 w-4" data-icon="i-x"></span></button>
-            </div>
-            <div class="px-5 py-3 flex items-center gap-3 row-hover t">
-              <span class="h-4 w-4 text-mute" data-icon="i-file"></span>
-              <div class="flex-1 min-w-0">
-                <div class="text-[13px] font-semibold text-ink truncate">budget-forecast-Q4.pdf</div>
-                <div class="text-[11px] text-mute font-mono">1.2 MB · PDF</div>
-              </div>
-              <span class="text-[11px] font-bold uppercase tracking-wider text-ok bg-okSoft px-2 py-0.5 rounded">Parsed</span>
-              <button class="h-7 w-7 grid place-items-center rounded text-mute2 hover:text-warn hover:bg-canvas2 t"><span class="h-4 w-4" data-icon="i-x"></span></button>
-            </div>
+            <div id="staged-files-list"></div>
           </div>
-
-          <!-- CTA row -->
-          <div class="mt-6 flex items-center justify-between gap-4">
-            <div class="flex items-center gap-3 text-[12.5px] text-mute">
-              <label class="inline-flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked="" class="accent-[#0369A1] h-3.5 w-3.5">
-                <span>Deep conflict scan</span>
-              </label>
-              <span class="text-mute2">·</span>
-              <label class="inline-flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" class="accent-[#0369A1] h-3.5 w-3.5">
-                <span>Cite passages in output</span>
-              </label>
-            </div>
-            <button type="submit" id="analyze-btn" class="group inline-flex items-center gap-2 h-12 px-6 rounded-[10px] bg-brand text-white text-[14px] font-bold tracking-tightish hover:bg-brandDark t shadow-card">
-              Analyze Documents
-              <span class="h-4 w-4 group-hover:translate-x-0.5 t" data-icon="i-arrow-right"></span>
-            </button>
-          </div>
-        </form>
-        </div>
-      </div>
-
-      <!-- Right: side rail -->
-      <aside class="col-span-12 lg:col-span-4">
-        <div class="bg-surface border border-line rounded-[14px] p-5">
-          <div class="text-[11px] font-bold uppercase tracking-[0.14em] text-mute mb-3">What you'll get</div>
-          <ul class="space-y-3.5">
-            <li class="flex gap-3">
-              <span class="mt-0.5 h-5 w-5 rounded-full bg-brandSoft text-brand grid place-items-center shrink-0"><span class="h-3 w-3" data-icon="i-check"></span></span>
-              <div>
-                <div class="text-[13.5px] font-semibold text-ink leading-tight">Structured extraction</div>
-                <div class="text-[12px] text-mute mt-0.5">Budget, scope, timeline, team, deliverables — typed and sourced.</div>
-              </div>
-            </li>
-            <li class="flex gap-3">
-              <span class="mt-0.5 h-5 w-5 rounded-full bg-brandSoft text-brand grid place-items-center shrink-0"><span class="h-3 w-3" data-icon="i-check"></span></span>
-              <div>
-                <div class="text-[13.5px] font-semibold text-ink leading-tight">Cross-document conflict map</div>
-                <div class="text-[12px] text-mute mt-0.5">Every disagreement, paired with both source snippets.</div>
-              </div>
-            </li>
-            <li class="flex gap-3">
-              <span class="mt-0.5 h-5 w-5 rounded-full bg-brandSoft text-brand grid place-items-center shrink-0"><span class="h-3 w-3" data-icon="i-check"></span></span>
-              <div>
-                <div class="text-[13.5px] font-semibold text-ink leading-tight">Exportable report</div>
-                <div class="text-[12px] text-mute mt-0.5">Hand off as PDF or DOCX in one click.</div>
-              </div>
-            </li>
-          </ul>
         </div>
 
-        <div class="mt-5 bg-ink text-white rounded-[14px] p-5">
-          <div class="flex items-center gap-2 mb-2">
-            <span class="h-4 w-4 text-brandSoft" data-icon="i-sparkle"></span>
-            <div class="text-[11px] font-bold uppercase tracking-[0.14em] text-mute2">Pro tip</div>
+        <!-- CTA row -->
+        <div class="mt-5 flex items-center justify-between gap-4 flex-wrap">
+          <div class="flex items-center gap-4 text-[12.5px] text-[#64748B]">
+            <label class="inline-flex items-center gap-2 select-none opacity-50 cursor-not-allowed" title="Coming soon">
+              <input type="checkbox" id="deep-conflict" disabled class="accent-[#0369A1] h-3.5 w-3.5 cursor-not-allowed" />
+              <span>Deep conflict scan</span>
+              <span class="text-[10px] font-semibold text-[#94A3B8] bg-[#F1F5F9] border border-[#E2E8F0] px-1.5 py-0.5 rounded">Soon</span>
+            </label>
+            <span class="text-[#E2E8F0]">·</span>
+            <label class="inline-flex items-center gap-2 select-none opacity-50 cursor-not-allowed" title="Coming soon">
+              <input type="checkbox" id="cite-passages" disabled class="accent-[#0369A1] h-3.5 w-3.5 cursor-not-allowed" />
+              <span>Cite passages in output</span>
+              <span class="text-[10px] font-semibold text-[#94A3B8] bg-[#F1F5F9] border border-[#E2E8F0] px-1.5 py-0.5 rounded">Soon</span>
+            </label>
           </div>
-          <div class="text-[14px] font-semibold leading-snug">Mix file types for a richer map.</div>
-          <div class="text-[12.5px] text-mute2 mt-1.5 leading-relaxed">A SOW + Slack export + design spec usually yields 3× more useful conflicts than three identical briefs.</div>
+          <button id="analyze-btn" type="submit"
+                  class="group inline-flex items-center gap-2 h-12 px-6 rounded-[10px] bg-[#0369A1] text-white text-[14px] font-bold hover:bg-[#075985] t shadow-[0_1px_2px_rgba(15,23,42,0.1)]">
+            Analyze Documents
+            <span class="h-4 w-4 group-hover:translate-x-0.5 t" data-icon="i-arrow-right"></span>
+          </button>
         </div>
-      </aside>
+      </form>
     </div>
-  </section>
 
-  <!-- ========== STATE 2 · PROCESSING ========== -->
-  <section class="view" data-view="processing">
-    <div class="max-w-[760px] mx-auto">
-
-      <!-- top status -->
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <div class="text-[11px] font-bold uppercase tracking-[0.14em] text-brand">Analyzing</div>
-          <h2 class="font-extrabold text-[28px] tracking-tightish mt-1 text-ink">Reading your 3 documents</h2>
-        </div>
-        <button class="h-9 px-3.5 rounded-[8px] border border-line text-[12.5px] font-semibold text-ink3 hover:bg-canvas2 t flex items-center gap-2">
-          <span class="h-3.5 w-3.5" data-icon="i-x"></span> Cancel
-        </button>
+    <!-- Right sidebar -->
+    <aside class="col-span-12 lg:col-span-4">
+      <div class="bg-white border border-[#E2E8F0] rounded-[14px] p-5">
+        <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8] mb-4">What you'll get</div>
+        <ul class="space-y-4">
+          <li class="flex gap-3">
+            <span class="mt-0.5 h-5 w-5 rounded-full bg-[#E0F2FE] text-[#0369A1] grid place-items-center shrink-0">
+              <span class="h-3 w-3" data-icon="i-check"></span>
+            </span>
+            <div>
+              <div class="text-[13.5px] font-semibold text-[#0F172A] leading-tight">Structured extraction</div>
+              <div class="text-[12px] text-[#64748B] mt-0.5 leading-relaxed">Budget, scope, timeline, team, deliverables — typed and sourced.</div>
+            </div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 h-5 w-5 rounded-full bg-[#E0F2FE] text-[#0369A1] grid place-items-center shrink-0">
+              <span class="h-3 w-3" data-icon="i-check"></span>
+            </span>
+            <div>
+              <div class="text-[13.5px] font-semibold text-[#0F172A] leading-tight">Cross-document conflict map</div>
+              <div class="text-[12px] text-[#64748B] mt-0.5 leading-relaxed">Every disagreement, paired with both source snippets.</div>
+            </div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 h-5 w-5 rounded-full bg-[#E0F2FE] text-[#0369A1] grid place-items-center shrink-0">
+              <span class="h-3 w-3" data-icon="i-check"></span>
+            </span>
+            <div>
+              <div class="text-[13.5px] font-semibold text-[#0F172A] leading-tight">Exportable report</div>
+              <div class="text-[12px] text-[#64748B] mt-0.5 leading-relaxed">Hand off as PDF or DOCX in one click.</div>
+            </div>
+          </li>
+        </ul>
       </div>
 
-      <!-- big card -->
-      <div class="bg-surface border border-line rounded-[16px] overflow-hidden">
-
-        <!-- progress bar -->
-        <div class="h-1 bg-canvas2">
-          <div id="overall-progress-bar" class="h-full shimmer" style="width:0%"></div>
+      <div class="mt-4 bg-[#0F172A] text-white rounded-[14px] p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="h-4 w-4 text-[#38BDF8]" data-icon="i-sparkle"></span>
+          <div class="text-[10px] font-bold uppercase tracking-[0.14em] text-[#475569]">Pro tip</div>
         </div>
-
-        <div class="p-8">
-          <!-- pulse + summary -->
-          <div class="flex items-start gap-6">
-            <div class="relative h-16 w-16 shrink-0">
-              <div class="absolute inset-0 rounded-full border-[3px] border-canvas2"></div>
-              <div class="absolute inset-0 rounded-full border-[3px] border-brand border-r-transparent border-b-transparent spin"></div>
-              <div class="absolute inset-0 grid place-items-center">
-                <span class="h-6 w-6 text-brand" data-icon="i-brain"></span>
-              </div>
-            </div>
-            <div class="flex-1 pt-1">
-              <div class="text-[15px] font-bold text-ink">Extracting structured data with GPT-4o…</div>
-              <div id="progress-text" class="text-[13px] text-mute mt-1">Обработано: 0 файлов</div>
-              <div class="mt-3 flex items-center gap-4 text-[11.5px] text-mute font-mono">
-                <span><span class="text-ink3 font-bold">3</span> files</span>
-                <span class="text-line2">|</span>
-                <span><span class="text-ink3 font-bold">42</span> pages</span>
-                <span class="text-line2">|</span>
-                <span id="token-counter"><span class="text-ink3 font-bold">0</span> tokens</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- step list -->
-          <ol id="file-progress-list" class="mt-8 space-y-1"></ol>
-
-          <!-- log stream -->
-          <div id="log-stream" class="mt-6 bg-ink rounded-[10px] p-4 font-mono text-[11.5px] leading-relaxed text-mute2"></div>
-            <div><span class="text-ok">✓</span> <span class="text-mute2">[00:05]</span> Parsed <span class="text-white">stakeholder-notes-aug22.md</span> — 4 pages</div>
-            <div><span class="text-ok">✓</span> <span class="text-mute2">[00:07]</span> Parsed <span class="text-white">budget-forecast-Q4.pdf</span> — 20 pages</div>
-            <div><span class="text-brand">→</span> <span class="text-mute2">[00:22]</span> Extracting entities · model=<span class="text-white">gpt-4o</span></div>
-            <div class="text-mute2/60"><span class="text-mute2">[00:42]</span> ▌</div>
-          </div>
-        </div>
+        <div class="text-[14px] font-semibold leading-snug">Mix file types for a richer map.</div>
+        <div class="text-[12.5px] text-[#64748B] mt-1.5 leading-relaxed">A SOW + Slack export + design spec usually yields 3× more useful conflicts than three identical briefs.</div>
       </div>
+    </aside>
+  </div>
+</section>
 
-      <p class="text-center text-[12px] text-mute mt-4">Safe to leave this tab — we'll email you when it's ready.</p>
-    </div>
-  </section>
+<!-- ══ SCREEN 2 · PROCESSING ══ -->
+<section class="view" data-view="processing">
+  <div class="max-w-[720px] mx-auto">
 
-  <!-- ========== STATE 3 · RESULTS ========== -->
-  <section class="view" data-view="results">
-
-    <!-- Title row + actions -->
-    <div class="flex items-start justify-between gap-6 flex-wrap mb-8">
+    <div class="flex items-center justify-between mb-6">
       <div>
-        <div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand mb-2">
-          <span class="h-3 w-3 rounded-full bg-brand inline-block"></span> Analysis complete
-        </div>
-        <h2 id="result-title" class="font-extrabold text-[32px] tracking-tightish text-ink leading-[1.1]">Результат генерации</h2>
-        <div class="mt-2 flex items-center gap-3 text-[12.5px] text-mute">
-          <span>3 documents</span><span class="text-mute2">·</span>
-          <span>42 pages</span><span class="text-mute2">·</span>
-          <span>Completed in <span class="text-ink font-semibold">1m 04s</span></span><span class="text-mute2">·</span>
-          <span>May 11, 2026 · 14:22</span>
-        </div>
+        <div class="text-[11px] font-bold uppercase tracking-[0.14em] text-[#0369A1]">Analyzing</div>
+        <h2 id="processing-title" class="font-extrabold text-[26px] mt-1 text-[#0F172A]" style="letter-spacing:-0.015em">Reading your documents…</h2>
       </div>
-      <div class="flex items-center gap-2">
-        <button class="h-10 px-3.5 rounded-[8px] border border-line text-[13px] font-semibold text-ink3 hover:bg-canvas2 t flex items-center gap-2">
-          <span class="h-4 w-4" data-icon="i-share"></span> Share
-        </button>
-        <button class="h-10 px-3.5 rounded-[8px] border border-line text-[13px] font-semibold text-ink3 hover:bg-canvas2 t flex items-center gap-2">
-          <span class="h-4 w-4" data-icon="i-link"></span> Copy link
-        </button>
-        <div class="h-6 w-px bg-line mx-1"></div>
-        <button id="download-pdf-btn" class="h-10 px-4 rounded-[8px] border border-line bg-surface text-ink text-[13px] font-semibold hover:bg-canvas2 t flex items-center gap-2 shadow-card">
-          <span class="h-4 w-4" data-icon="i-download"></span> Download PDF
-        </button>
-        
-        <button id="download-docx-btn" class="h-10 px-4 rounded-[8px] bg-ink text-white text-[13px] font-semibold hover:bg-ink2 t flex items-center gap-2 shadow-card">
-          <span class="h-4 w-4" data-icon="i-download"></span> Download DOCX
-        </button>
-        <button id="download-btn" class="h-10 px-4 rounded-[8px] border border-line bg-surface text-ink text-[13px] font-semibold hover:bg-canvas2 t flex items-center gap-2 shadow-card">
-          <span class="h-4 w-4" data-icon="i-download"></span> JSON
-        </button>
-        <button id="load-another-btn" style="display:none;" class="h-10 px-4 rounded-[8px] border border-line bg-surface text-ink text-[13px] font-semibold hover:bg-canvas2 t flex items-center gap-2 shadow-card">
-           Загрузить другой JSON
-        </button>
-        <button id="reset-btn" class="h-10 px-4 rounded-[8px] border border-line bg-surface text-ink text-[13px] font-semibold hover:bg-canvas2 t flex items-center gap-2 shadow-card">
-          Начать заново
-        </button>
+      <button onclick="clearPipelineGhost(); go('upload')" class="h-9 px-3.5 rounded-[8px] border border-[#E2E8F0] text-[12.5px] font-semibold text-[#334155] hover:bg-[#F1F5F9] t flex items-center gap-2">
+        <span class="h-3.5 w-3.5" data-icon="i-x"></span> Cancel
+      </button>
+    </div>
 
+    <div class="bg-white border border-[#E2E8F0] rounded-[16px] overflow-hidden">
+      <!-- top progress bar -->
+      <div class="h-1 bg-[#F1F5F9]">
+        <div id="overall-progress-bar" class="h-full shimmer-bar" style="width: 0%"></div>
+      </div>
+
+      <div class="p-8">
+        <!-- Big % ring + context -->
+        <div class="flex items-center gap-6 mb-8">
+          <div class="relative h-20 w-20 shrink-0">
+            <svg class="absolute inset-0 -rotate-90" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="34" fill="none" stroke="#F1F5F9" stroke-width="6"/>
+              <circle id="progress-ring-circle" cx="40" cy="40" r="34" fill="none" stroke="#0369A1" stroke-width="6"
+                      stroke-dasharray="213.6" stroke-dashoffset="213.6" stroke-linecap="round"/>
+            </svg>
+            <div class="absolute inset-0 flex items-center justify-center">
+              <span id="progress-ring-pct" class="text-[18px] font-extrabold text-[#0F172A]">0%</span>
+            </div>
+          </div>
+          <div class="flex-1">
+            <div id="progress-text" class="text-[15px] font-bold text-[#0F172A]">Initializing pipeline…</div>
+            <div class="mt-3 flex items-center gap-4 text-[11.5px] text-[#64748B] font-mono">
+              <span id="file-count-display"></span>
+              <span class="text-[#E2E8F0]" id="token-sep" style="display:none">|</span>
+              <span id="token-counter"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4-phase stepper -->
+        <div class="bg-[#F8FAFC] rounded-[12px] p-6 mb-6">
+          <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8] mb-5">Pipeline phases</div>
+          <div class="stepper" id="phase-stepper">
+            <div class="stepper-step active" data-phase="0">
+              <div class="stepper-circle">
+                <span class="h-5 w-5 block" data-icon="i-parse"></span>
+              </div>
+              <div class="stepper-label">Parsing</div>
+              <div class="stepper-sublabel">Text extraction</div>
+            </div>
+            <div class="stepper-step pending" data-phase="1">
+              <div class="stepper-circle">
+                <span class="h-5 w-5 block" data-icon="i-map-phase"></span>
+              </div>
+              <div class="stepper-label">Mapping</div>
+              <div class="stepper-sublabel">Per-file LLM<br>extraction</div>
+            </div>
+            <div class="stepper-step pending" data-phase="2">
+              <div class="stepper-circle">
+                <span class="h-5 w-5 block" data-icon="i-reduce"></span>
+              </div>
+              <div class="stepper-label">Reducing</div>
+              <div class="stepper-sublabel">Conflict<br>detection</div>
+            </div>
+            <div class="stepper-step pending" data-phase="3">
+              <div class="stepper-circle">
+                <span class="h-5 w-5 block" data-icon="i-finalize"></span>
+              </div>
+              <div class="stepper-label">Finalizing</div>
+              <div class="stepper-sublabel">Output<br>assembly</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-file progress -->
+        <div class="mb-1 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8]">Files</div>
+        <ol id="file-progress-list" class="mb-6"></ol>
+
+        <!-- Live log stream -->
+        <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8] mb-2">Log</div>
+        <div id="log-stream" class="bg-[#0F172A] rounded-[10px] p-4 font-mono text-[11.5px] leading-relaxed text-[#64748B]">
+          <div><span class="text-[#0369A1]">→</span> <span class="text-[#475569]">[00:00]</span> Pipeline initialized</div>
+        </div>
       </div>
     </div>
 
-    <div id="meta-content" style="display:none;"></div>
-    <!-- Summary stats strip -->
-    <div id="parsed-content"></div>
+    <p class="text-center text-[12px] text-[#94A3B8] mt-4">Processing locally via LM Studio — results appear when complete.</p>
+  </div>
+</section>
 
-  </section>
+<!-- ══ SCREEN 3 · RESULTS ══ -->
+<section class="view" data-view="results">
 
-  <!-- ========== STATE 4 · ARCHIVE ========== -->
-  <section class="view" data-view="archive">
-    <div class="flex items-end justify-between mb-6">
-      <div>
-        <div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand mb-2">
-          <span class="h-3 w-3" data-icon="i-folder"></span> Archive
-        </div>
-        <h2 class="font-extrabold text-[32px] tracking-tightish text-ink leading-[1.1]">Previous analyses</h2>
-        <p id="archive-count" class="text-[13.5px] text-mute mt-2">загрузка...</p>
+  <!-- Header + export -->
+  <div class="flex items-start justify-between gap-6 flex-wrap mb-8">
+    <div>
+      <div class="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#0369A1] mb-2">
+        <span class="h-2.5 w-2.5 rounded-full bg-[#0369A1]"></span> Analysis complete
       </div>
-      <div class="flex items-center gap-2">
-        <div class="flex items-center gap-2 bg-surface border border-line rounded-[8px] px-3 h-10 w-[280px]">
-          <span class="h-4 w-4 text-mute2" data-icon="i-search"></span>
-          <input id="archive-search" oninput="filterArchive()" class="bg-transparent text-[13px] outline-none flex-1 placeholder:text-mute2" placeholder="Filter by name, source, or field…">
-        </div>
-        <button onclick="go('upload')" class="h-10 px-4 rounded-[8px] bg-brand text-white text-[13px] font-semibold hover:bg-brandDark t flex items-center gap-2">
-          <span class="h-4 w-4" data-icon="i-upload"></span> New analysis
-        </button>
-      </div>
+      <h2 id="result-title" class="font-extrabold text-[30px] text-[#0F172A] leading-[1.1]" style="letter-spacing:-0.015em">Analysis Result</h2>
+      <div id="result-meta-strip" class="mt-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[12.5px] text-[#64748B]"></div>
     </div>
-
-    <div class="bg-surface border border-line rounded-[14px] overflow-hidden">
-      <div class="grid grid-cols-[1fr_120px_140px_140px_120px_40px] gap-4 px-6 py-3 bg-canvas/60 inset-line text-[11px] font-bold uppercase tracking-[0.12em] text-mute">
-        <div>Project</div><div>Files</div><div>Conflicts</div><div>Status</div><div>Last run</div><div></div>
-      </div>
-      <!-- rows -->
-      <div id="archive-grid" class="divide-y divide-line"></div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <button class="h-9 px-3 rounded-[8px] border border-[#E2E8F0] text-[12.5px] font-semibold text-[#334155] hover:bg-[#F1F5F9] t flex items-center gap-1.5">
+        <span class="h-4 w-4" data-icon="i-share"></span> Share
+      </button>
+      <div class="h-5 w-px bg-[#E2E8F0] mx-0.5"></div>
+      <button id="download-btn" class="h-9 px-3.5 rounded-[8px] border border-[#E2E8F0] text-[12.5px] font-semibold text-[#334155] hover:bg-[#F1F5F9] t flex items-center gap-1.5">
+        <span class="h-4 w-4" data-icon="i-download"></span> JSON
+      </button>
+      <button id="download-pdf-btn" class="h-9 px-3.5 rounded-[8px] border border-[#E2E8F0] text-[12.5px] font-semibold text-[#334155] hover:bg-[#F1F5F9] t flex items-center gap-1.5">
+        <span class="h-4 w-4" data-icon="i-download"></span> PDF
+      </button>
+      <button id="download-docx-btn" class="h-9 px-4 rounded-[8px] bg-[#0F172A] text-white text-[12.5px] font-semibold hover:bg-[#1E293B] t flex items-center gap-1.5">
+        <span class="h-4 w-4" data-icon="i-download"></span> DOCX
+      </button>
+      <button id="reset-btn" class="h-9 px-3 rounded-[8px] border border-[#E2E8F0] text-[12.5px] font-semibold text-[#64748B] hover:bg-[#F1F5F9] t">
+        Start over
+      </button>
+      <button id="load-another-btn" style="display:none" class="h-9 px-3 rounded-[8px] border border-[#E2E8F0] text-[12.5px] font-semibold text-[#64748B] hover:bg-[#F1F5F9] t">
+        Load another
+      </button>
     </div>
-  </section>
+  </div>
+
+  <!-- Stats strip -->
+  <div id="stats-strip" class="grid grid-cols-4 bg-white border border-[#E2E8F0] rounded-[14px] overflow-hidden mb-8" style="display:none"></div>
+
+  <!-- Dynamic content -->
+  <div id="meta-content"></div>
+  <div id="parsed-content"></div>
+</section>
+
+<!-- ══ SCREEN 4 · ARCHIVE ══ -->
+<section class="view" data-view="archive">
+  <div class="flex items-end justify-between gap-4 mb-6 flex-wrap">
+    <div>
+      <div class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#64748B] mb-2">
+        <span class="h-3.5 w-3.5" data-icon="i-folder"></span> Archive
+      </div>
+      <h2 class="font-extrabold text-[30px] text-[#0F172A] leading-[1.1]" style="letter-spacing:-0.015em">Previous analyses</h2>
+      <p id="archive-count" class="text-[13.5px] text-[#64748B] mt-1.5">Loading…</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-[8px] px-3 h-10 w-[260px] t hover:border-[#CBD5E1]">
+        <span class="h-4 w-4 text-[#94A3B8]" data-icon="i-search"></span>
+        <input id="archive-search" oninput="filterArchive()" class="bg-transparent text-[13px] outline-none flex-1 placeholder:text-[#94A3B8]" placeholder="Filter by name or status…">
+      </div>
+      <button onclick="go('upload')" class="h-10 px-4 rounded-[8px] bg-[#0369A1] text-white text-[13px] font-semibold hover:bg-[#075985] t flex items-center gap-2">
+        <span class="h-4 w-4" data-icon="i-upload"></span> New analysis
+      </button>
+    </div>
+  </div>
+
+  <div class="bg-white border border-[#E2E8F0] rounded-[14px] overflow-hidden">
+    <div class="ar-head">
+      <div>Project</div>
+      <div>Files</div>
+      <div>Conflicts</div>
+      <div>Status</div>
+      <div>Last run</div>
+      <div></div>
+    </div>
+    <div id="archive-grid" class="divide-y divide-[#E2E8F0]"></div>
+    <div id="archive-empty-state" style="display:none" class="archive-empty">
+      <div class="ar-empty-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>
+      </div>
+      <div class="text-[15px] font-bold text-[#334155]">No analyses yet</div>
+      <div class="text-[13px] text-[#94A3B8] max-w-[320px] leading-relaxed">Once you run your first document analysis it'll appear here, ready to reload or re-export.</div>
+      <button onclick="go('upload')" class="mt-4 h-9 px-4 rounded-[8px] bg-[#0369A1] text-white text-[13px] font-semibold hover:bg-[#075985] t">
+        Start your first analysis
+      </button>
+    </div>
+  </div>
+</section>
 
 </main>
 
-<!-- ============================================================
-     SCRIPT
-============================================================ -->
-
 <script>
+/* ── Icon hydration ── */
+document.querySelectorAll('[data-icon]').forEach(slot => {
+  const tpl = document.getElementById(slot.dataset.icon);
+  if (!tpl) return;
+  const svg = tpl.content.firstElementChild.cloneNode(true);
+  svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%');
+  svg.classList.add('block');
+  slot.innerHTML = ''; slot.appendChild(svg);
+});
 
-  // 1. Inline-icon hydration
-  document.querySelectorAll('[data-icon]').forEach(slot => {
-    const tpl = document.getElementById(slot.dataset.icon);
-    if (!tpl) return;
-    const svg = tpl.content.cloneNode(true).firstElementChild.cloneNode(true);
-    svg.setAttribute('class', (slot.className || '') + ' block');
-    svg.setAttribute('width', '100%');
-    svg.setAttribute('height', '100%');
-    // Remove the wrapper's classes from the svg so the slot's box stays sized correctly
-    svg.classList.remove(...slot.className.split(/\s+/).filter(Boolean));
-    slot.innerHTML = '';
-    slot.appendChild(svg);
-  });
+/* ── View + Tab switcher ── */
+const views    = document.querySelectorAll('.view');
+const stateBtns = document.querySelectorAll('[data-state]');
+const navTabs   = document.querySelectorAll('.nav-tab');
 
-  // 2. View switcher
-  const views = document.querySelectorAll('.view');
-  const stateBtns = document.querySelectorAll('[data-state]');
-  const tabBtns = document.querySelectorAll('[data-tab]');
-
-  function go(name) {
-    views.forEach(v => v.classList.toggle('active', v.dataset.view === name));
-    stateBtns.forEach(b => b.setAttribute('aria-current', b.dataset.state === name ? 'true' : 'false'));
-    // Tab highlight: upload tab for upload/processing/results, archive for archive
-    const activeTab = (name === 'archive') ? 'archive' : 'upload';
-    tabBtns.forEach(b => {
-      const on = b.dataset.tab === activeTab;
-      b.classList.toggle('bg-canvas2', on);
-      b.classList.toggle('text-ink', on);
-      b.classList.toggle('text-mute', !on);
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+function go(name) {
+  views.forEach(v => v.classList.toggle('active', v.dataset.view === name));
+  stateBtns.forEach(b => b.setAttribute('aria-current', b.dataset.state === name ? 'true' : 'false'));
+  const activeTab = name === 'archive' ? 'archive' : 'upload';
+  navTabs.forEach(b => b.classList.toggle('tab-active', b.dataset.tab === activeTab));
+  if (name === 'upload') {
+    const bc = document.getElementById('breadcrumb-project');
+    if (bc) bc.textContent = 'New Analysis';
   }
-
-  stateBtns.forEach(b => b.addEventListener('click', () => go(b.dataset.state)));
-  tabBtns.forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
-
-  // initial state
-  go('upload');
-
-
-// ---- backend logic ----
-
-// Fix Drag and Drop
-const dz = document.getElementById('drop-zone');
-if(dz) {
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('border-brand'); });
-    dz.addEventListener('dragleave', e => { e.preventDefault(); dz.classList.remove('border-brand'); });
-    dz.addEventListener('drop', e => {
-        e.preventDefault();
-        dz.classList.remove('border-brand');
-        if(e.dataTransfer.files.length > 0) {
-            document.getElementById('file-input').files = e.dataTransfer.files;
-            // Optionally auto-submit or show files
-        }
-    });
+  if (name !== 'results') {
+    const td = document.getElementById('token-display');
+    if (td) td.classList.add('hidden');
+  }
+  const pill = document.getElementById('progress-pill');
+  if (pill) pill.classList.toggle('pill-visible', pipelineRunning && name !== 'processing');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (name === 'archive') loadArchiveList();
 }
 
+stateBtns.forEach(b => b.addEventListener('click', () => go(b.dataset.state)));
+navTabs.forEach(b => b.addEventListener('click', () => {
+  const target = b.dataset.tab === 'archive' ? 'archive' : 'upload';
+  if (target === 'upload') allArchiveFiles = [];
+  go(target);
+}));
+go('upload');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STATE
-// ─────────────────────────────────────────────────────────────────────────────
+/* ── Drag and Drop ── */
+const dz = document.getElementById('drop-zone');
+if (dz) {
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('ring-2', 'ring-[#0369A1]'); });
+  dz.addEventListener('dragleave', e => { e.preventDefault(); dz.classList.remove('ring-2', 'ring-[#0369A1]'); });
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('ring-2', 'ring-[#0369A1]');
+    if (e.dataTransfer.files.length > 0) {
+      document.getElementById('file-input').files = e.dataTransfer.files;
+      renderStagedFiles(e.dataTransfer.files);
+    }
+  });
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  renderStagedFiles(e.target.files);
+});
+
+function renderStagedFiles(files) {
+  const container = document.getElementById('staged-files-container');
+  const list = document.getElementById('staged-files-list');
+  const countEl = document.getElementById('staged-count');
+  if (!files || files.length === 0) { container.style.display = 'none'; return; }
+  const count = files.length;
+  countEl.innerHTML = `${count} file${count > 1 ? 's' : ''} staged <span class="text-[#64748B] font-normal">· ready to analyze</span>`;
+  list.innerHTML = Array.from(files).map(f => {
+    const ext = f.name.split('.').pop().toUpperCase();
+    const size = f.size > 1024*1024 ? (f.size/(1024*1024)).toFixed(1)+' MB' : Math.round(f.size/1024)+' KB';
+    return `<div class="px-5 py-3 flex items-center gap-3 hover:bg-[#F8FAFC] t">
+      <svg class="h-4 w-4 text-[#94A3B8] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div class="flex-1 min-w-0">
+        <div class="text-[13px] font-semibold text-[#0F172A] truncate">${f.name}</div>
+        <div class="text-[11px] text-[#94A3B8] font-mono">${size} · ${ext}</div>
+      </div>
+      <span class="text-[10.5px] font-bold uppercase tracking-wider text-[#0369A1] bg-[#DBEAFE] px-2 py-0.5 rounded">Ready</span>
+    </div>`;
+  }).join('');
+  container.style.display = 'block';
+}
+
+function clearAllFiles() {
+  document.getElementById('file-input').value = '';
+  document.getElementById('staged-files-container').style.display = 'none';
+}
+
+/* ── STATE ── */
 let currentRawData = null;
-let allArchiveFiles = [];   // [{name, conflicts, tokens, duration}]
-let viewerMode = false;     // true when viewing a loaded JSON (not generated)
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PROGRESS VISUALIZATION
-// ─────────────────────────────────────────────────────────────────────────────
+let allArchiveFiles = [];
+let archiveLoading = false;
+let viewerMode = false;
 let fileProgressState = [];
+let pipelineGhost = null;  // { phase: string } while running, null when done
+let pipelineRunning = false;
 
+function getProjectName() {
+  if (!currentRawData) return 'neuraldocs';
+  const metaName = currentRawData?.metadata?.project_name;
+  if (metaName) return metaName;
+  const doc = currentRawData.document_extended || currentRawData.document || {};
+  const ov = typeof doc.project_overview === 'string'
+    ? doc.project_overview
+    : (doc.project_overview?.text || '');
+  const first = ov.split(/[.!?]/)[0].trim().slice(0, 50);
+  return first || 'neuraldocs';
+}
+
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '_').replace(/^_|_$/g, '').slice(0, 60) || 'neuraldocs';
+}
+
+/* ── PROGRESS VISUALIZATION ── */
 function initFileProgress(fileNames) {
-    fileProgressState = fileNames.map(name => ({ name, status: 'pending', tokens: 0 }));
-    renderFileProgress();
+  fileProgressState = fileNames.map(name => ({ name, status: 'pending', tokens: 0 }));
+  const titleEl = document.getElementById('processing-title');
+  if (titleEl) titleEl.textContent = `Reading your ${fileNames.length} document${fileNames.length > 1 ? 's' : ''}…`;
+  const countEl = document.getElementById('file-count-display');
+  if (countEl) countEl.textContent = `${fileNames.length} file${fileNames.length > 1 ? 's' : ''}`;
+  renderFileProgress();
+  updateOverallProgress();
+  setPhase(0);
 }
 
 function updateFileProgress(fileName, status, tokens = 0) {
-    const file = fileProgressState.find(f => f.name === fileName);
-    if (file) {
-        file.status = status;
-        file.tokens = tokens;
-    }
-    renderFileProgress();
-    updateOverallProgress();
+  const file = fileProgressState.find(f => f.name === fileName);
+  if (file) { file.status = status; file.tokens = tokens; }
+  renderFileProgress();
+  updateOverallProgress();
 }
 
 function renderFileProgress() {
-    const container = document.getElementById('file-progress-list');
-    container.innerHTML = fileProgressState.map(f => {
-        const icon = f.status === 'done' ? '<span class="checkmark">✓</span>' :
-                     f.status === 'processing' ? '<div class="mini-spinner"></div>' :
-                     '<span style="color: var(--text-muted);">○</span>';
-        const cls = f.status === 'processing' ? 'processing' : f.status === 'done' ? 'done' : '';
-        const statusText = f.status === 'done' ? `${f.tokens} токенов` :
-                           f.status === 'processing' ? 'Обработка...' : 'Ожидание';
-        return `
-            <div class="file-progress-item ${cls}">
-                <span class="file-icon">📄</span>
-                <span class="file-name">${f.name}</span>
-                <span class="file-status">${icon} ${statusText}</span>
-            </div>
-        `;
-    }).join('');
+  const container = document.getElementById('file-progress-list');
+  container.innerHTML = fileProgressState.map(f => {
+    const icon = f.status === 'done'
+      ? `<div class="fp-check"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div>`
+      : f.status === 'processing'
+      ? `<div class="fp-spinner"></div>`
+      : `<div class="fp-dot"></div>`;
+    const tokens = f.status === 'done' ? `${f.tokens.toLocaleString()} tokens`
+                 : f.status === 'processing' ? 'processing…'
+                 : 'waiting';
+    return `<li class="fp-item ${f.status}">${icon}
+      <span class="fp-name${f.status === 'pending' ? ' muted' : ''}">${f.name}</span>
+      <span class="fp-tokens">${tokens}</span>
+    </li>`;
+  }).join('');
 }
 
 function updateOverallProgress() {
-    const total = fileProgressState.length;
-    const done = fileProgressState.filter(f => f.status === 'done').length;
-    const percent = total > 0 ? (done / total) * 100 : 0;
-    document.getElementById('overall-progress-bar').style.width = percent + '%';
-    document.getElementById('progress-text').textContent = `Файлов обработано: ${done}/${total}`;
-    const totalTokens = fileProgressState.reduce((sum, f) => sum + f.tokens, 0);
-    document.getElementById('token-counter').textContent = totalTokens.toLocaleString() + ' токенов';
+  const total = fileProgressState.length;
+  const done  = fileProgressState.filter(f => f.status === 'done').length;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  const bar = document.getElementById('overall-progress-bar');
+  if (bar) bar.style.width = percent + '%';
+
+  const ring = document.getElementById('progress-ring-circle');
+  if (ring) ring.style.strokeDashoffset = 213.6 - (213.6 * percent / 100);
+  const pct = document.getElementById('progress-ring-pct');
+  if (pct) pct.textContent = percent + '%';
+
+  const progressText = document.getElementById('progress-text');
+  if (progressText) progressText.textContent = `Files processed: ${done} / ${total}`;
+
+  const totalTokens = fileProgressState.reduce((sum, f) => sum + f.tokens, 0);
+  const tokenEl = document.getElementById('token-counter');
+  const sepEl = document.getElementById('token-sep');
+  if (tokenEl && totalTokens > 0) {
+    tokenEl.textContent = totalTokens.toLocaleString() + ' tokens';
+    if (sepEl) sepEl.style.display = '';
+  }
+
+  // Stepper phases are driven explicitly via setPhase() — not derived from scan %
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONFLICT MODAL
-// ─────────────────────────────────────────────────────────────────────────────
-let currentConflict = null;
-
-function showConflictModal(fieldName, conflictDetails, sources) {
-    const modal = document.getElementById('conflict-modal');
-    const container = document.getElementById('diff-container');
-
-    // Parse conflict details to extract sources
-    const diffHtml = sources.map((src, idx) => `
-        <div class="diff-box ${idx === sources.length - 1 ? 'highlight' : ''}">
-            <h4>${src.file}, строка ${src.line}</h4>
-            <p>${src.value}</p>
-        </div>
-    `).join('');
-
-    container.innerHTML = diffHtml;
-    modal.style.display = 'flex';
+/* ── PHASE STEPPER ── */
+function updateStepper(activePhase) {
+  document.querySelectorAll('.stepper-step').forEach((step, i) => {
+    step.classList.remove('complete', 'active', 'pending');
+    if (i < activePhase)       step.classList.add('complete');
+    else if (i === activePhase) step.classList.add('active');
+    else                        step.classList.add('pending');
+  });
 }
 
+function setPhase(phase) {
+  updateStepper(phase >= 4 ? 4 : phase);
+}
+
+function setPipelineGhost(phaseLabel) {
+  pipelineGhost = { phase: phaseLabel };
+  const pillPhase = document.getElementById('pill-phase');
+  if (pillPhase) pillPhase.textContent = phaseLabel;
+  const archiveView = document.querySelector('[data-view="archive"]');
+  if (archiveView && archiveView.classList.contains('active')) {
+    renderArchiveGrid(allArchiveFiles);
+  }
+}
+function clearPipelineGhost() {
+  pipelineRunning = false;
+  pipelineGhost = null;
+  allArchiveFiles = [];
+  archiveLoading = false;
+  const pill = document.getElementById('progress-pill');
+  if (pill) pill.classList.remove('pill-visible');
+  const archiveView = document.querySelector('[data-view="archive"]');
+  if (archiveView && archiveView.classList.contains('active')) {
+    renderArchiveGrid(allArchiveFiles);
+  }
+}
+
+/* ── CONFLICT MODAL ── */
 function closeConflictModal() {
-    document.getElementById('conflict-modal').style.display = 'none';
+  document.getElementById('conflict-modal').style.display = 'none';
 }
-
 function closeModalOnOverlay(e) {
-    if (e.target === e.currentTarget) closeConflictModal();
+  if (e.target === e.currentTarget) closeConflictModal();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPLETENESS SCORE
-// ─────────────────────────────────────────────────────────────────────────────
-function calculateCompletenessScore(doc) {
-    const fields = [
-        { key: 'project_overview', weight: 10 },
-        { key: 'goals', weight: 15, isArray: true },
-        { key: 'requirements', weight: 15, isArray: true },
-        { key: 'technical_solution', weight: 15 },
-        { key: 'architecture', weight: 10 },
-        { key: 'team', weight: 10, isArray: true },
-        { key: 'timeline', weight: 10 },
-        { key: 'budget', weight: 10 },
-        { key: 'risks', weight: 5, isArray: true }
-    ];
-
-    let score = 0;
-    fields.forEach(field => {
-        const value = doc[field.key];
-        if (field.isArray) {
-            if (value && value.length > 0) {
-                // Rich format: [{text: ...}]  |  Spec format: ["string", ...]
-                const first = value[0];
-                const text = (typeof first === 'object' && first !== null) ? (first.text || '') : String(first || '');
-                if (text && !text.includes('отсутству')) score += field.weight;
-            }
-        } else {
-            // Rich format: {text: ...}  |  Spec format: "string"
-            const text = (value && typeof value === 'object') ? (value.text || '') : String(value || '');
-            if (text && text.length > 10 && !text.includes('отсутству')) score += field.weight;
-        }
-    });
-
-    return Math.round(score);
-}
-
-function getScoreClass(score) {
-    if (score >= 80) return '';
-    if (score >= 50) return 'medium';
-    return 'low';
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TAB SWITCHING
-// ─────────────────────────────────────────────────────────────────────────────
-function switchTab(tab) {
-    // tab classes handled via go()
-    const tg = document.getElementById('tab-generate'); if(tg) tg.style.display = 'none';
-    const tl = document.getElementById('tab-load'); if(tl) tl.style.display = 'none';
-
-    if (tab === 'generate') {
-        const tg = document.getElementById('tab-generate'); if(tg) tg.style.display = 'block';
-        
-    } else {
-        const tl = document.getElementById('tab-load'); if(tl) tl.style.display = 'block';
-        
-        loadArchiveList();
+function markConflictResolved() {
+  if (window._activeConflictEl) {
+    window._activeConflictEl.style.display = 'none';
+    // Decrement conflict count in stats strip
+    const conflictStat = document.querySelector('#stats-strip div:nth-child(2) .text-\\[30px\\]');
+    if (conflictStat) {
+      const n = Math.max(0, parseInt(conflictStat.textContent, 10) - 1);
+      conflictStat.textContent = n;
+      if (n === 0) conflictStat.style.color = '#15803D';
     }
+    window._activeConflictEl = null;
+  }
+  closeConflictModal();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GENERATE FORM
-// ─────────────────────────────────────────────────────────────────────────────
+/* ── FORM SUBMIT ── */
 document.getElementById('upload-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    viewerMode = false;
+  e.preventDefault();
+  viewerMode = false;
 
-    const files = document.getElementById('file-input').files;
-    const fileNames = Array.from(files).map(f => f.name);
+  const files = document.getElementById('file-input').files;
+  if (!files || files.length === 0) { alert('Please select at least one file.'); return; }
+  const fileNames = Array.from(files).map(f => f.name);
 
-    // Initialize progress visualization
-    initFileProgress(fileNames);
-    go('processing');
+  initFileProgress(fileNames);
+  pipelineRunning = true;
+  go('processing');
+  setPhase(0);  // Parsing starts
+  setPipelineGhost('Parsing documents…');
 
-    // Simulate progress for each file (since we don't have streaming yet)
-    const progressInterval = setInterval(() => {
-        const pendingFiles = fileProgressState.filter(f => f.status === 'pending');
-        if (pendingFiles.length > 0) {
-            const nextFile = pendingFiles[0];
-            updateFileProgress(nextFile.name, 'processing');
-            setTimeout(() => {
-                updateFileProgress(nextFile.name, 'done', Math.floor(Math.random() * 500) + 200);
-            }, 800 + Math.random() * 1000);
+  let allScanned = false;
+  let reduceTimeout = null;
+  const progressInterval = setInterval(() => {
+    const pendingFiles = fileProgressState.filter(f => f.status === 'pending');
+    if (pendingFiles.length > 0) {
+      const nextFile = pendingFiles[0];
+      updateFileProgress(nextFile.name, 'processing');
+      setTimeout(() => {
+        updateFileProgress(nextFile.name, 'done', Math.floor(Math.random() * 500) + 200);
+        // When last file finishes scanning, advance to Mapping then Reducing
+        const stillPending = fileProgressState.filter(f => f.status === 'pending');
+        const stillProcessing = fileProgressState.filter(f => f.status === 'processing');
+        if (!allScanned && stillPending.length === 0 && stillProcessing.length === 0) {
+          allScanned = true;
+          setPhase(1);  // Mapping
+          setPipelineGhost('Mapping fields…');
+          reduceTimeout = setTimeout(() => { setPhase(2); setPipelineGhost('Reducing conflicts…'); }, 3000);
         }
-    }, 1500);
-
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
-    
-    // Default language is Russian
-    formData.append('language', 'ru');
-
-    try {
-        const resp = await fetch('/generate_document', { method: 'POST', body: formData });
-        clearInterval(progressInterval);
-        if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.detail || 'Неизвестная ошибка сервера');
-        }
-        const data = await resp.json();
-        showResult(data, false);
-    } catch (err) {
-        clearInterval(progressInterval);
-        alert('Ошибка: ' + err.message);
-        go('upload');
+      }, 800 + Math.random() * 1000);
     }
+  }, 1500);
+
+  const formData = new FormData();
+  for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
+  formData.append('language', 'en');
+
+  try {
+    const resp = await fetch('/generate_document', { method: 'POST', body: formData });
+    clearInterval(progressInterval);
+    if (reduceTimeout) { clearTimeout(reduceTimeout); reduceTimeout = null; }
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Server error');
+    }
+    const data = await resp.json();
+    allArchiveFiles = [];  // invalidate cache so archive reloads with new entry
+    setPhase(3);  // Finalizing — API returned, assembling output
+    setPipelineGhost('Finalizing…');
+    await new Promise(r => setTimeout(r, 600));  // brief pause so user sees Finalizing
+    clearPipelineGhost();
+    showResult(data, false);
+    // Refresh archive badge count
+    try {
+      const ar = await fetch('/api/samples');
+      const arData = await ar.json();
+      const el = document.getElementById('archive-tab-count');
+      if (el) el.textContent = arData.count ?? 0;
+    } catch (_) {}
+  } catch (err) {
+    clearInterval(progressInterval);
+    if (reduceTimeout) { clearTimeout(reduceTimeout); reduceTimeout = null; }
+    clearPipelineGhost();
+    alert('Error: ' + err.message);
+    go('upload');
+  }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LOCAL JSON FILE PICKER
-// ─────────────────────────────────────────────────────────────────────────────
+/* ── LOCAL JSON FILE PICKER ── */
 document.getElementById('json-file-input').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        try {
-            const data = JSON.parse(ev.target.result);
-            showResult(data, true, file.name);
-        } catch {
-            alert('Ошибка: файл не является валидным JSON');
-        }
-    };
-    reader.readAsText(file, 'utf-8');
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      showResult(data, true, file.name);
+    } catch {
+      alert('Error: file is not valid JSON');
+    }
+  };
+  reader.readAsText(file, 'utf-8');
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ARCHIVE BROWSER
-// ─────────────────────────────────────────────────────────────────────────────
+/* ── ARCHIVE BROWSER ── */
 async function loadArchiveList() {
-    if (allArchiveFiles.length > 0) return; // already loaded
-    const grid = document.getElementById('archive-grid');
-    try {
-        const resp = await fetch('/api/samples');
-        const data = await resp.json();
-        document.getElementById('archive-count').textContent = `${data.count} файлов`;
+  if (allArchiveFiles.length > 0) { renderArchiveGrid(allArchiveFiles); return; }
+  if (archiveLoading) return;
+  archiveLoading = true;
+  const grid = document.getElementById('archive-grid');
+  const emptyState = document.getElementById('archive-empty-state');
+  grid.innerHTML = '';
+  if (pipelineGhost) {
+    emptyState.style.display = 'none';
+    renderArchiveGrid([]);
+  }
+  try {
+    const resp = await fetch('/api/samples');
+    const data = await resp.json();
 
-        if (!data.files || data.files.length === 0) {
-            grid.innerHTML = '<div class="archive-empty">Архив пуст. Запустите setup_v2.py для генерации образцов.</div>';
-            return;
-        }
-
-        // Load metadata for each file (lightweight — just parse conflicts from filename hint via API)
-        // We fetch all in parallel with Promise.all but limit batch to avoid flooding
-        const BATCH = 20;
-        allArchiveFiles = [];
-        for (let i = 0; i < data.files.length; i += BATCH) {
-            const batch = data.files.slice(i, i + BATCH);
-            const results = await Promise.all(batch.map(name =>
-                fetch(`/api/samples/${name}`)
-                    .then(r => r.json())
-                    .then(d => ({
-                        name,
-                        overview: (d.document && d.document.project_overview) ? d.document.project_overview.slice(0, 60) : '',
-                        conflicts: (d.metadata && d.metadata.conflicts_found) || 0,
-                        tokens: (d.metadata && d.metadata.total_tokens) || 0,
-                        duration: (d.metadata && d.metadata.duration_ms) || 0,
-                    }))
-                    .catch(() => ({ name, overview: '', conflicts: 0, tokens: 0, duration: 0 }))
-            ));
-            allArchiveFiles.push(...results);
-        }
-        renderArchiveGrid(allArchiveFiles);
-    } catch (err) {
-        grid.innerHTML = `<div class="archive-empty">Не удалось загрузить архив: ${err.message}</div>`;
+    if (!data.files || data.files.length === 0) {
+      grid.innerHTML = '';
+      if (!pipelineGhost) emptyState.style.display = '';
+      document.getElementById('archive-count').textContent = '0 analyses';
+      archiveLoading = false;
+      return;
     }
+
+    document.getElementById('archive-count').textContent = `${data.count} documents`;
+    const countTabEl = document.getElementById('archive-tab-count');
+    if (countTabEl) countTabEl.textContent = data.count;
+
+    const BATCH = 20;
+    allArchiveFiles = [];
+    for (let i = 0; i < data.files.length; i += BATCH) {
+      const batch = data.files.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map(name =>
+        fetch(`/api/samples/${name}`)
+          .then(r => r.json())
+          .then(d => ({
+            name,
+            projectName: (d.metadata && d.metadata.project_name) || null,
+            overview: (d.document && d.document.project_overview)
+              ? (typeof d.document.project_overview === 'string' ? d.document.project_overview : d.document.project_overview.text || '').slice(0, 60)
+              : '',
+            conflicts: (d.metadata && d.metadata.conflicts_found) || 0,
+            tokens: (d.metadata && d.metadata.total_tokens) || 0,
+            duration: (d.metadata && d.metadata.duration_ms) || 0,
+            ts: (d.metadata && d.metadata.created_at) || null,
+          }))
+          .catch(() => ({ name, overview: '', conflicts: 0, tokens: 0, duration: 0, ts: null }))
+      ));
+      allArchiveFiles.push(...results);
+    }
+    renderArchiveGrid(allArchiveFiles);
+    archiveLoading = false;
+  } catch (err) {
+    archiveLoading = false;
+    grid.innerHTML = '';
+    if (!pipelineGhost) emptyState.style.display = '';
+    document.getElementById('archive-count').textContent = 'Failed to load archive';
+  }
 }
 
 function renderArchiveGrid(files) {
-    const grid = document.getElementById('archive-grid');
-    if (!files.length) {
-        grid.innerHTML = '<div class="archive-empty">Ничего не найдено</div>';
-        return;
-    }
-    grid.innerHTML = files.map(f => `
-        <div class="archive-card" onclick="loadSampleByName('${f.name}')">
-            <div class="card-name">📄 ${f.name}</div>
-            <div class="card-meta" title="${f.overview}">${f.overview || 'Нет описания'}...</div>
-            <div class="card-meta">🪙 ${f.tokens} токенов · ⏱ ${f.duration} мс</div>
-            <span class="card-conflicts ${f.conflicts === 0 ? 'none' : ''}">
-                ${f.conflicts === 0 ? '✓ Конфликтов нет' : '⚠️ Конфликтов: ' + f.conflicts}
-            </span>
+  const grid = document.getElementById('archive-grid');
+  const emptyState = document.getElementById('archive-empty-state');
+
+  const ghostHtml = pipelineGhost ? `
+    <div class="ar-row-item" style="background:#EFF6FF;border-left:3px solid #3B82F6;">
+      <div>
+        <div style="font-size:13.5px;font-weight:700;color:#1D4ED8;display:flex;align-items:center;gap:8px;">
+          <span style="width:10px;height:10px;border-radius:50%;border:2px solid #BFDBFE;border-top-color:#3B82F6;display:inline-block;animation:spin360 0.8s linear infinite;flex-shrink:0"></span>
+          New analysis
         </div>
-    `).join('');
+        <div style="font-size:11.5px;color:#3B82F6;margin-top:2px">${pipelineGhost.phase}</div>
+      </div>
+      <div style="font-size:13px;font-family:'JetBrains Mono',monospace;color:#94A3B8">—</div>
+      <div><span style="font-size:11px;font-weight:700;background:#DBEAFE;color:#1D4ED8;padding:3px 8px;border-radius:4px">In Progress</span></div>
+      <div style="font-size:11.5px;color:#3B82F6;font-weight:600">Running</div>
+      <div style="font-size:12px;color:#94A3B8">Just now</div>
+      <div></div>
+    </div>` : '';
+
+  if (!files.length && !pipelineGhost) {
+    grid.innerHTML = '';
+    emptyState.style.display = '';
+    return;
+  }
+  emptyState.style.display = 'none';
+  grid.innerHTML = ghostHtml + files.map(f => `
+    <div class="ar-row-item" onclick="loadSampleByName('${f.name}')">
+      <div>
+        <div style="font-size:13.5px;font-weight:700;color:#0F172A">${f.projectName || f.name.replace(/\.json$/, '')}</div>
+        <div style="font-size:11.5px;color:#64748B;margin-top:2px">${f.name}</div>
+      </div>
+      <div style="font-size:13px;font-family:'JetBrains Mono',monospace;color:#334155">${f.tokens ? Math.round(f.tokens/1000)+'k' : '—'}</div>
+      <div>${f.conflicts > 0
+        ? `<span style="font-size:11px;font-weight:700;background:#FEF3C7;color:#B45309;padding:3px 8px;border-radius:4px">${f.conflicts} active</span>`
+        : `<span style="font-size:11px;font-weight:700;background:#DCFCE7;color:#15803D;padding:3px 8px;border-radius:4px">None</span>`}</div>
+      <div style="font-size:11.5px;color:#15803D;font-weight:600;display:flex;align-items:center;gap:6px">
+        <span style="width:6px;height:6px;border-radius:50%;background:#15803D;display:inline-block"></span> Complete
+      </div>
+      <div style="font-size:12px;color:#64748B">${f.ts ? new Date(f.ts).toLocaleDateString() : 'Unknown'}</div>
+      <div style="color:#CBD5E1">→</div>
+    </div>`).join('');
 }
 
 function filterArchive() {
-    const q = document.getElementById('archive-search').value.toLowerCase();
-    const filtered = allArchiveFiles.filter(f =>
-        f.name.toLowerCase().includes(q) || f.overview.toLowerCase().includes(q)
-    );
-    renderArchiveGrid(filtered);
+  const q = document.getElementById('archive-search').value.toLowerCase();
+  const filtered = allArchiveFiles.filter(f =>
+    f.name.toLowerCase().includes(q) || f.overview.toLowerCase().includes(q)
+  );
+  renderArchiveGrid(filtered);
 }
 
 async function loadSampleByName(filename) {
-    go('processing');
-    try {
-        const resp = await fetch(`/api/samples/${encodeURIComponent(filename)}`);
-        if (!resp.ok) throw new Error('Файл не найден');
-        const data = await resp.json();
-        showResult(data, true, filename);
-    } catch (err) {
-        alert('Ошибка загрузки: ' + err.message);
-        go('upload');
-    }
+  if (!pipelineRunning) go('processing');
+  try {
+    const resp = await fetch(`/api/samples/${encodeURIComponent(filename)}`);
+    if (!resp.ok) throw new Error('File not found');
+    const data = await resp.json();
+    showResult(data, true, filename);
+  } catch (err) {
+    alert('Load error: ' + err.message);
+    if (!pipelineRunning) go('upload');
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHOW RESULT
-// ─────────────────────────────────────────────────────────────────────────────
+/* ── SHOW RESULT ── */
 function showResult(data, isViewer, filename) {
-    viewerMode = isViewer;
-    currentRawData = data;
+  viewerMode = isViewer;
+  currentRawData = data;
 
-    const title = document.getElementById('result-title');
-    const loadAnotherBtn = document.getElementById('load-another-btn');
-    // Use the rich extended document for UI rendering if available (spec-compliant
-    // plain-string `document` is for download/fine-tuning only)
-    const doc = data.document_extended || data.document || {};
+  const doc = data.document_extended || data.document || {};
+  const meta = data.metadata || {};
 
-    // Calculate and show completeness score
-    const score = calculateCompletenessScore(doc);
-    const scoreClass = getScoreClass(score);
-    const scoreEmoji = score >= 80 ? '✅' : score >= 50 ? '⚠️' : '❌';
+  const titleEl = document.getElementById('result-title');
+  const loadAnotherBtn = document.getElementById('load-another-btn');
 
-    if (isViewer) {
-        // title handled dynamically документа <span class="viewer-badge">📄 ${filename || 'JSON'}</span><span class="score-badge ${scoreClass}">${scoreEmoji} ${score}%</span>`;
-        loadAnotherBtn.style.display = 'block';
+  if (isViewer) {
+    titleEl.textContent = filename ? filename.replace(/\.json$/, '') : 'Loaded Document';
+    loadAnotherBtn.style.display = 'block';
+  } else {
+    const overview = typeof doc.project_overview === 'string'
+      ? doc.project_overview
+      : (doc.project_overview?.text || '');
+    titleEl.textContent = overview ? overview.split(/[.!?]/)[0].slice(0, 60) : 'Analysis Complete';
+    loadAnotherBtn.style.display = 'none';
+  }
+
+  const breadcrumb = document.getElementById('breadcrumb-project');
+  if (breadcrumb) {
+    const pName = getProjectName();
+    breadcrumb.textContent = pName.length > 50 ? pName.slice(0, 47) + '…' : pName;
+  }
+
+  const headerTokens = document.getElementById('header-tokens');
+  const tokenDisplay = document.getElementById('token-display');
+  if (headerTokens && meta.total_tokens) {
+    headerTokens.textContent = (meta.total_tokens).toLocaleString();
+    if (tokenDisplay) tokenDisplay.classList.remove('hidden');
+  }
+
+  renderResults(data);
+  go('results');
+}
+
+/* ── COMPLETENESS SCORE ── */
+function calculateCompletenessScore(doc) {
+  const fields = [
+    { key: 'project_overview', weight: 10 },
+    { key: 'goals',            weight: 15, isArray: true },
+    { key: 'requirements',     weight: 15, isArray: true },
+    { key: 'technical_solution', weight: 15 },
+    { key: 'architecture',     weight: 10 },
+    { key: 'team',             weight: 10, isArray: true },
+    { key: 'timeline',         weight: 10 },
+    { key: 'budget',           weight: 10 },
+    { key: 'risks',            weight: 5,  isArray: true }
+  ];
+  let score = 0;
+  fields.forEach(field => {
+    const value = doc[field.key];
+    if (field.isArray) {
+      if (value && value.length > 0) {
+        const first = value[0];
+        const text = (typeof first === 'object' && first !== null) ? (first.text || '') : String(first || '');
+        if (text && !text.includes('отсутству')) score += field.weight;
+      }
     } else {
-        // title handled генерации: <span class="score-badge ${scoreClass}">${scoreEmoji} ${score}%</span>`;
-        loadAnotherBtn.style.display = 'none';
+      const text = (value && typeof value === 'object') ? (value.text || '') : String(value || '');
+      if (text && text.length > 10 && !text.includes('отсутству')) score += field.weight;
     }
-
-    renderResults(data);
-    go('results');
+  });
+  return Math.round(score);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCREEN SWITCHER
-// ─────────────────────────────────────────────────────────────────────────────
-function showScreen(name) {
-    const u = document.getElementById('upload-screen'); if(u) u.style.display  = name === 'upload'  ? 'block' : 'none';
-    const l = document.getElementById('loading-screen'); if(l) l.style.display = name === 'loading' ? 'block' : 'none';
-    const r = document.getElementById('result-screen'); if(r) r.style.display  = name === 'result'  ? 'block' : 'none';
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RENDER RESULTS  (unchanged logic — used by both generate and viewer paths)
-// ─────────────────────────────────────────────────────────────────────────────
+/* ── RENDER RESULTS ── */
 function renderResults(data) {
-    // Prefer rich extended document for UI (has source badges & conflict details).
-    // Plain-string spec `document` is used for download/fine-tuning.
-    const doc  = data.document_extended || data.document || {};
-    const meta = data.metadata  || {};
-    const container = document.getElementById('parsed-content');
-    
-    // Get current language from dropdown
-    const currentLang = document.getElementById('output-language')?.value || 'ru';
-    
-    // Multilingual labels
-    const labels = {
-        ru: {
-            project_overview: 'Обзор проекта',
-            goals: 'Цели проекта',
-            requirements: 'Требования',
-            technical_solution: 'Техническое решение',
-            architecture: 'Архитектура',
-            team: 'Команда',
-            timeline: 'Сроки',
-            budget: 'Бюджет',
-            risks: 'Риски',
-            no_data: 'Нет данных',
-            conflict_click: 'Конфликт (клик для деталей)',
-            conflicts_found: 'Обнаружено противоречий',
-            conflict_desc: 'Найдены несовместимые данные в документах:',
-            metadata: 'Статистика обработки',
-            files_processed: 'Файлов проанализировано',
-            final_assembly: 'Сборка документа',
-            tokens: 'Токенов обработано',
-            duration: 'Время обработки',
-            ms: 'мс'
-        },
-        en: {
-            project_overview: 'Project Overview',
-            goals: 'Project Goals',
-            requirements: 'Requirements',
-            technical_solution: 'Technical Solution',
-            architecture: 'Architecture',
-            team: 'Team',
-            timeline: 'Timeline',
-            budget: 'Budget',
-            risks: 'Risks',
-            no_data: 'No data available',
-            conflict_click: 'Conflict (click for details)',
-            conflicts_found: 'Conflicts detected',
-            conflict_desc: 'Inconsistent data found across documents:',
-            metadata: 'Processing statistics',
-            files_processed: 'Files analyzed',
-            final_assembly: 'Document assembly',
-            tokens: 'Tokens processed',
-            duration: 'Processing time',
-            ms: 'ms'
-        },
-        kz: {
-            project_overview: 'Жоба шолуы',
-            goals: 'Жоба мақсаттары',
-            requirements: 'Талаптар',
-            technical_solution: 'Техникалық шешім',
-            architecture: 'Архитектура',
-            team: 'Команда',
-            timeline: 'Мерзімдер',
-            budget: 'Бюджет',
-            risks: 'Тәуекелдер',
-            no_data: 'Деректер жоқ',
-            conflict_click: 'Қақтығыс (толықтыру үшін басыңыз)',
-            conflicts_found: 'Қақтығыстар анықталды',
-            conflict_desc: 'Құжаттарда сәйкес емес деректер табылды:',
-            metadata: 'Өңдеу статистикасы',
-            files_processed: 'Талданған файлдар',
-            final_assembly: 'Құжатты жинау',
-            tokens: 'Өңделген токендер',
-            duration: 'Өңдеу уақыты',
-            ms: 'мс'
-        }
-    };
-    
-    const t = labels[currentLang] || labels.ru;
+  const doc  = data.document_extended || data.document || {};
+  const meta = data.metadata || {};
+  const container = document.getElementById('parsed-content');
 
-    const makeFact = (fact, fieldName = '') => {
-        // Handle plain string (spec format fallback)
-        if (typeof fact === 'string') {
-            return fact && fact.length > 1 && !fact.includes('отсутству')
-                ? `<span>${fact}</span>`
-                : `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
-        }
-        if (!fact) return `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
-        // Rich format: if text is empty but source is present, show "Источник: …" hint
-        if (!fact.text || !fact.text.trim()) {
-            if (fact.source && !fact.source.includes('файл.txt')) {
-                return `<span style="color:var(--text-muted);font-style:italic;">Нет текста</span><span class="source-badge">📄 ${fact.source}</span>`;
-            }
-            return `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
-        }
-        const badgeStyle = (fact.source === 'Нет источника' || (fact.source || '').includes('отсутству'))
-            ? 'background:#F3F4F6;color:#6B7280;' : '';
-        let html = `<span>${fact.text}</span><span class="source-badge" style="${badgeStyle}">📄 ${fact.source || '—'}</span>`;
-        if (fact.has_conflict) {
-            const conflictId = `conflict-${fieldName}-${Math.random().toString(36).substr(2, 9)}`;
-            // Parse conflict details to extract sources
-            const sources = parseConflictDetails(fact.conflict_details);
-            html += `
-            <div style="margin-top:8px;margin-bottom:8px;background:var(--conflict-bg);border-left:4px solid #F59E0B;padding:10px 14px;font-size:13.5px;color:var(--conflict-text);border-radius:0 4px 4px 0;cursor:pointer;"
-                 onclick='showConflictFromData(${JSON.stringify(fact.conflict_details).replace(/'/g, "&#39;")})'>
-                <strong style="display:block;margin-bottom:4px;">⚠️ ${t.conflict_click}:</strong>
-                ${fact.conflict_details}
-            </div>`;
-        }
-        return html;
-    };
+  const t = {
+    project_overview:   'Project Overview',
+    goals:              'Goals',
+    requirements:       'Requirements',
+    technical_solution: 'Technical Solution',
+    architecture:       'Architecture',
+    team:               'Team',
+    timeline:           'Timeline',
+    budget:             'Budget',
+    risks:              'Risks',
+    no_data:            'No data available',
+    conflict_click:     'Conflict — click to view source diff',
+    conflicts_found:    'Conflicts detected',
+    conflict_desc:      'Inconsistent data found across documents:',
+    metadata:           'Processing statistics',
+    files_processed:    'Files analyzed',
+    tokens:             'Tokens processed',
+    duration:           'Processing time',
+  };
 
-    // Helper to parse conflict details
-    function parseConflictDetails(details) {
-        const sources = [];
-        const regex = /([^;]+?) — ([^;]+)/g;
-        let match;
-        while ((match = regex.exec(details)) !== null) {
-            const fileLine = match[1].trim();
-            const value = match[2].trim();
-            const fileMatch = fileLine.match(/(.+?),\s*\[(\d+)\]/);
-            if (fileMatch) {
-                sources.push({ file: fileMatch[1], line: fileMatch[2], value });
-            } else {
-                sources.push({ file: fileLine, line: '?', value });
-            }
+  function parseConflictDetails(details) {
+    const sources = [];
+
+    // Backend format: "file1.txt: "value1" | file2.txt: "value2""
+    const pipeParts = details.split('|').map(s => s.trim()).filter(Boolean);
+    if (pipeParts.length >= 2) {
+      pipeParts.forEach(part => {
+        const colonIdx = part.indexOf(':');
+        if (colonIdx > 0) {
+          const file = part.slice(0, colonIdx).trim();
+          const value = part.slice(colonIdx + 1).trim().replace(/^"|"$/g, '');
+          sources.push({ file, line: null, value });
+        } else {
+          sources.push({ file: 'Source', line: null, value: part });
         }
-        return sources.length > 0 ? sources : [{ file: 'Неизвестно', line: '?', value: details }];
+      });
+      return sources;
     }
 
-    window.showConflictFromData = function(conflictDetails) {
-        const sources = parseConflictDetails(conflictDetails);
-        const modal = document.getElementById('conflict-modal');
-        const container = document.getElementById('diff-container');
+    // Legacy format: "filename, [N] — value"
+    const legacyRegex = /([^;]+?) — ([^;]+)/g;
+    let match;
+    while ((match = legacyRegex.exec(details)) !== null) {
+      const fileLine = match[1].trim();
+      const value    = match[2].trim();
+      const fileMatch = fileLine.match(/(.+?),\s*\[(\d+)\]/);
+      if (fileMatch) sources.push({ file: fileMatch[1], line: fileMatch[2], value });
+      else           sources.push({ file: fileLine, line: null, value });
+    }
 
-        const diffHtml = sources.map((src, idx) => `
-            <div class="diff-box ${idx === 0 ? 'highlight' : ''}">
-                <h4>${src.file}, строка ${src.line}</h4>
-                <p>${src.value}</p>
-            </div>
-        `).join('');
+    return sources.length > 0 ? sources : [{ file: 'Unknown', line: null, value: details }];
+  }
 
-        container.innerHTML = diffHtml;
-        modal.style.display = 'flex';
-    };
+  window._activeConflictEl = null;
+  window.showConflictFromData = function(conflictDetails, fieldLabel, triggerEl) {
+    window._activeConflictEl = triggerEl || null;
+    const sources   = parseConflictDetails(conflictDetails);
+    const modal     = document.getElementById('conflict-modal');
+    const container = document.getElementById('diff-container');
+    const nameEl    = document.getElementById('modal-field-name');
+    if (nameEl) nameEl.textContent = fieldLabel || 'Conflict details';
+    container.innerHTML = sources.map((src, idx) => `
+      <div class="diff-box ${idx === sources.length - 1 ? 'highlight' : ''}">
+        <h4>${src.file}${src.line ? ' · line ' + src.line : ''}</h4>
+        <p>${src.value}</p>
+      </div>`).join('');
+    modal.style.display = 'flex';
+  };
 
-    const makeFactList = (items) => {
-        if (!items || items.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
-        // Filter out items that are completely empty (empty string or object with empty text)
-        const nonEmpty = items.filter(item => {
-            if (typeof item === 'string') return item.trim().length > 0;
-            if (typeof item === 'object' && item !== null) {
-                // Keep items that have real text OR a real conflict to show
-                const hasText = (item.text || '').trim().length > 0;
-                const hasSource = item.source && !item.source.includes('файл.txt');
-                return hasText || hasSource || item.has_conflict;
-            }
-            return false;
-        });
-        if (nonEmpty.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
-        return `<ul>${nonEmpty.map(item => `<li>${makeFact(item)}</li>`).join('')}</ul>`;
-    };
-
-    // Conflict summary banner
-    const conflictsCount = meta.conflicts_found || 0;
-    let conflictBannerHtml = '';
-    if (conflictsCount > 0) {
-        const fieldLabels = {
-            timeline: t.timeline, budget: t.budget,
-            technical_solution: t.technical_solution, architecture: t.architecture,
-            goals: t.goals, requirements: t.requirements, team: t.team, risks: t.risks
-        };
-        const conflictItems = [];
-        ['timeline','budget','technical_solution','architecture'].forEach(key => {
-            const f = doc[key];
-            if (f && f.has_conflict && f.conflict_details)
-                conflictItems.push(`<li><strong>${fieldLabels[key]}:</strong> ${f.conflict_details}</li>`);
-        });
-        ['goals','requirements','team','risks'].forEach(key => {
-            (doc[key] || []).forEach((f, i) => {
-                if (f && f.has_conflict && f.conflict_details)
-                    conflictItems.push(`<li><strong>${fieldLabels[key]} [${i+1}]:</strong> ${f.conflict_details}</li>`);
-            });
-        });
-        conflictBannerHtml = `
-        <div style="background:#FEF3C7;border:2px solid #F59E0B;border-radius:8px;padding:16px 20px;margin-bottom:24px;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-                <span style="font-size:22px;">⚠️</span>
-                <strong style="font-size:16px;color:#92400E;">${t.conflicts_found}: ${conflictsCount}</strong>
-            </div>
-            <p style="margin:4px 0 0;color:#B45309;font-size:14px;">${t.conflict_desc}</p>
-            <ul style="margin:8px 0 0;padding-left:20px;color:#92400E;font-size:13.5px;">${conflictItems.join('')}</ul>
+  const makeFact = (fact, fieldName = '') => {
+    if (typeof fact === 'string') {
+      return fact && fact.length > 1 && !fact.includes('отсутству')
+        ? `<span>${fact}</span>`
+        : `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
+    }
+    if (!fact) return `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
+    if (!fact.text || !fact.text.trim()) {
+      if (fact.source && !fact.source.includes('файл.txt')) {
+        return `<span style="color:var(--text-muted);font-style:italic;">No text</span><span class="source-badge">${fact.source}</span>`;
+      }
+      return `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
+    }
+    let html = `<span>${fact.text}</span><span class="source-badge">${fact.source || '—'}</span>`;
+    if (fact.has_conflict) {
+      const escapedDetails = JSON.stringify(fact.conflict_details).replace(/'/g, "&#39;");
+      const escapedLabel   = JSON.stringify(fieldName).replace(/'/g, "&#39;");
+      html += `
+        <div class="conflict-inline" onclick='showConflictFromData(${escapedDetails}, ${escapedLabel}, this)'>
+          <span style="flex-shrink:0;font-size:14px;margin-top:1px">⚠️</span>
+          <div>
+            <strong>${t.conflict_click}</strong>
+            <span>${fact.conflict_details}</span>
+          </div>
+          <span class="conflict-cta">View conflict →</span>
         </div>`;
     }
+    return html;
+  };
 
-    container.innerHTML = conflictBannerHtml + `
-        <div class="result-section fade-in"><h3>${t.project_overview}</h3><p>${doc.project_overview || t.no_data}</p></div>
-        <div class="result-section fade-in"><h3>${t.goals}</h3>${makeFactList(doc.goals)}</div>
-        <div class="result-section fade-in"><h3>${t.requirements}</h3>${makeFactList(doc.requirements)}</div>
-        <div class="result-section fade-in"><h3>${t.technical_solution}</h3><p>${makeFact(doc.technical_solution, 'technical_solution')}</p></div>
-        <div class="result-section fade-in"><h3>${t.architecture}</h3><p>${makeFact(doc.architecture, 'architecture')}</p></div>
-        <div class="result-section fade-in"><h3>${t.team}</h3>${makeFactList(doc.team)}</div>
-        <div class="result-section fade-in">
-            <h3>${t.timeline} & ${t.budget}</h3>
-            <p><strong>${t.timeline}:</strong> ${makeFact(doc.timeline, 'timeline')}</p>
-            <p><strong>${t.budget}:</strong> ${makeFact(doc.budget, 'budget')}</p>
-        </div>
-        <div class="result-section fade-in"><h3>${t.risks}</h3>${makeFactList(doc.risks)}</div>
-    `;
+  const makeFactList = (items) => {
+    if (!items || items.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
+    const nonEmpty = items.filter(item => {
+      if (typeof item === 'string') return item.trim().length > 0;
+      if (typeof item === 'object' && item !== null) {
+        const hasText   = (item.text || '').trim().length > 0;
+        const hasSource = item.source && !item.source.includes('файл.txt');
+        return hasText || hasSource || item.has_conflict;
+      }
+      return false;
+    });
+    if (nonEmpty.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
+    return `<ul>${nonEmpty.map(item => `<li>${makeFact(item)}</li>`).join('')}</ul>`;
+  };
 
-    document.getElementById('meta-content').innerHTML = `
-        <strong>${t.metadata}:</strong><br>
-        ${t.files_processed}: ${(meta.llm_calls || 1) - 1}<br>
-        ${t.final_assembly}: 1<br>
-        ${t.conflicts_found}: <strong>${conflictsCount}</strong><br>
-        ${t.tokens}: ${meta.total_tokens || 0} &nbsp;|&nbsp; ${t.duration}: ${meta.duration_ms || 0} ${t.ms}
-    `;
+  /* Conflict banner */
+  const conflictsCount = meta.conflicts_found || 0;
+  let conflictBannerHtml = '';
+  if (conflictsCount > 0) {
+    const fieldLabels = {
+      timeline: t.timeline, budget: t.budget,
+      technical_solution: t.technical_solution, architecture: t.architecture,
+      goals: t.goals, requirements: t.requirements, team: t.team, risks: t.risks
+    };
+    const conflictItems = [];
+    ['timeline','budget','technical_solution','architecture'].forEach(key => {
+      const f = doc[key];
+      if (f && f.has_conflict && f.conflict_details)
+        conflictItems.push(`<li><strong>${fieldLabels[key]}:</strong> ${f.conflict_details}</li>`);
+    });
+    ['goals','requirements','team','risks'].forEach(key => {
+      (doc[key] || []).forEach((f, i) => {
+        if (f && f.has_conflict && f.conflict_details)
+          conflictItems.push(`<li><strong>${fieldLabels[key]} [${i+1}]:</strong> ${f.conflict_details}</li>`);
+      });
+    });
+    conflictBannerHtml = `
+      <div class="conflict-banner">
+        <strong>${t.conflicts_found}: ${conflictsCount}</strong>
+        <p>${t.conflict_desc}</p>
+        ${conflictItems.length ? `<ul>${conflictItems.join('')}</ul>` : ''}
+      </div>`;
+  }
+
+  /* Stats strip */
+  const score = calculateCompletenessScore(doc);
+  const statsStrip = document.getElementById('stats-strip');
+  if (statsStrip) {
+    statsStrip.style.display = 'grid';
+    statsStrip.innerHTML = `
+      <div class="p-5 border-r border-[#E2E8F0]">
+        <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8]">Completeness</div>
+        <div class="mt-2 text-[30px] font-extrabold text-[#0F172A] leading-none" style="letter-spacing:-0.02em">${score}<span class="text-[18px] text-[#CBD5E1]">%</span></div>
+      </div>
+      <div class="p-5 border-r border-[#E2E8F0]">
+        <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8]">Conflicts found</div>
+        <div class="mt-2 text-[30px] font-extrabold leading-none" style="letter-spacing:-0.02em;color:${conflictsCount > 0 ? '#B45309' : '#15803D'}">${conflictsCount}</div>
+      </div>
+      <div class="p-5 border-r border-[#E2E8F0]">
+        <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8]">Tokens used</div>
+        <div class="mt-2 text-[30px] font-extrabold text-[#0F172A] leading-none font-mono" style="letter-spacing:-0.02em">${meta.total_tokens ? Math.round(meta.total_tokens/1000)+'k' : '—'}</div>
+      </div>
+      <div class="p-5">
+        <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8]">Duration</div>
+        <div class="mt-2 text-[30px] font-extrabold text-[#0F172A] leading-none font-mono" style="letter-spacing:-0.02em">${meta.duration_ms ? (meta.duration_ms/1000).toFixed(1)+'s' : '—'}</div>
+      </div>`;
+  }
+
+  container.innerHTML = conflictBannerHtml + `
+    <div class="result-section fade-in"><h3>${t.project_overview}</h3><p>${makeFact(doc.project_overview, t.project_overview)}</p></div>
+    <div class="result-section fade-in"><h3>${t.goals}</h3>${makeFactList(doc.goals)}</div>
+    <div class="result-section fade-in"><h3>${t.requirements}</h3>${makeFactList(doc.requirements)}</div>
+    <div class="result-section fade-in"><h3>${t.technical_solution}</h3><p>${makeFact(doc.technical_solution, t.technical_solution)}</p></div>
+    <div class="result-section fade-in"><h3>${t.architecture}</h3><p>${makeFact(doc.architecture, t.architecture)}</p></div>
+    <div class="result-section fade-in"><h3>${t.team}</h3>${makeFactList(doc.team)}</div>
+    <div class="result-section fade-in">
+      <h3>${t.timeline} &amp; ${t.budget}</h3>
+      <p><strong>${t.timeline}:</strong> ${makeFact(doc.timeline, t.timeline)}</p>
+      <p><strong>${t.budget}:</strong> ${makeFact(doc.budget, t.budget)}</p>
+    </div>
+    <div class="result-section fade-in"><h3>${t.risks}</h3>${makeFactList(doc.risks)}</div>
+  `;
+
+  document.getElementById('meta-content').innerHTML = `
+    <strong>${t.metadata}:</strong><br>
+    ${t.files_processed}: ${(meta.llm_calls || 1) - 1}<br>
+    ${t.conflicts_found}: <strong>${conflictsCount}</strong><br>
+    ${t.tokens}: ${meta.total_tokens || 0} &nbsp;|&nbsp; ${t.duration}: ${meta.duration_ms || 0} ms
+  `;
+
+  const metaStrip = document.getElementById('result-meta-strip');
+  if (metaStrip && meta.duration_ms) {
+    metaStrip.innerHTML = `
+      <span>${(meta.llm_calls || 1) - 1} files</span><span class="text-[#E2E8F0]">·</span>
+      <span>${(meta.duration_ms / 1000).toFixed(1)}s</span><span class="text-[#E2E8F0]">·</span>
+      <span>${meta.total_tokens ? meta.total_tokens.toLocaleString() + ' tokens' : ''}</span>`;
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BUTTONS
-// ─────────────────────────────────────────────────────────────────────────────
+/* ── EXPORT BUTTONS ── */
 document.getElementById('download-btn').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(currentRawData, null, 4)], { type: 'application/json' });
+  if (!currentRawData) return;
+  const blob = new Blob([JSON.stringify(currentRawData, null, 4)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${slugify(getProjectName())}.json`; a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('download-pdf-btn').addEventListener('click', async () => {
+  if (!currentRawData) return;
+  const btn = document.getElementById('download-pdf-btn');
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '⏳ Generating…'; btn.disabled = true;
+  try {
+    const resp = await fetch('/export/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...currentRawData, _language: 'en' }),
+    });
+    if (!resp.ok) throw new Error('PDF generation failed');
+    const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'map_reduce_doc.json'; a.click();
+    a.href = url; a.download = `${slugify(getProjectName())}.pdf`; a.click();
     URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('PDF export error: ' + err.message);
+  } finally {
+    btn.innerHTML = origHTML; btn.disabled = false;
+  }
 });
 
-// ── PDF Export ──
-document.getElementById('download-pdf-btn').addEventListener('click', async () => {
-    if (!currentRawData) return;
-    const btn = document.getElementById('download-pdf-btn');
-    const origText = btn.textContent;
-    btn.textContent = '⏳ Генерация...';
-    btn.disabled = true;
-    try {
-        const resp = await fetch('/export/pdf', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...currentRawData, _language: 'ru' }),
-        });
-        if (!resp.ok) throw new Error('PDF generation failed');
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'neuraldocs_report.pdf'; a.click();
-        URL.revokeObjectURL(url);
-    } catch (err) {
-        alert('Ошибка экспорта PDF: ' + err.message);
-    } finally {
-        btn.textContent = origText;
-        btn.disabled = false;
-    }
-});
-
-// ── DOCX Export ──
 document.getElementById('download-docx-btn').addEventListener('click', async () => {
-    if (!currentRawData) return;
-    const btn = document.getElementById('download-docx-btn');
-    const origText = btn.textContent;
-    btn.textContent = '⏳ Генерация...';
-    btn.disabled = true;
-    try {
-        const resp = await fetch('/export/docx', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...currentRawData, _language: 'ru' }),
-        });
-        if (!resp.ok) throw new Error('DOCX generation failed');
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'neuraldocs_report.docx'; a.click();
-        URL.revokeObjectURL(url);
-    } catch (err) {
-        alert('Ошибка экспорта DOCX: ' + err.message);
-    } finally {
-        btn.textContent = origText;
-        btn.disabled = false;
-    }
+  if (!currentRawData) return;
+  const btn = document.getElementById('download-docx-btn');
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '⏳ Generating…'; btn.disabled = true;
+  try {
+    const resp = await fetch('/export/docx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...currentRawData, _language: 'en' }),
+    });
+    if (!resp.ok) throw new Error('DOCX generation failed');
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${slugify(getProjectName())}.docx`; a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('DOCX export error: ' + err.message);
+  } finally {
+    btn.innerHTML = origHTML; btn.disabled = false;
+  }
 });
 
 document.getElementById('load-another-btn').addEventListener('click', () => {
-    go('upload');
-    go('archive');
+  allArchiveFiles = [];
+  go('archive');
 });
 
 document.getElementById('reset-btn').addEventListener('click', () => {
-    document.getElementById('file-input').value = '';
-    document.getElementById('json-file-input').value = '';
-    go('upload');
-    switchTab('generate');
+  document.getElementById('file-input').value = '';
+  document.getElementById('json-file-input').value = '';
+  document.getElementById('staged-files-container').style.display = 'none';
+  currentRawData = null;
+  allArchiveFiles = [];
+  go('upload');
 });
 
+/* ── INIT: fetch archive count badge on load ── */
+(async function initArchiveCount() {
+  try {
+    const resp = await fetch('/api/samples');
+    const data = await resp.json();
+    const el = document.getElementById('archive-tab-count');
+    if (el) el.textContent = data.count ?? 0;
+  } catch (_) {}
+})();
 </script>
 
-<!-- Conflict Modal -->
-<div id="conflict-modal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.6); z-index:100; align-items:center; justify-center; backdrop-filter:blur(4px);" onclick="closeModalOnOverlay(event)">
-  <div style="background:#fff; border-radius:14px; width:600px; max-width:90%; padding:24px; box-shadow:0 12px 32px rgba(0,0,0,0.1);" onclick="event.stopPropagation()">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="font-size:18px; font-weight:700;">Детали противоречия</h3>
-      <button onclick="closeConflictModal()" style="color:#64748B; hover:color:#0F172A;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
-    </div>
-    <div id="diff-container" style="max-height:400px; overflow-y:auto;"></div>
+<!-- ── PROGRESS PILL ── -->
+<div id="progress-pill" onclick="go('processing')">
+  <div style="flex-shrink:0;width:38px;height:38px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center">
+    <div style="width:15px;height:15px;border-radius:50%;border:2.5px solid #BFDBFE;border-top-color:#3B82F6;animation:spin360 0.8s linear infinite"></div>
   </div>
+  <div style="flex:1;min-width:0;overflow:hidden">
+    <div style="font-size:13px;font-weight:700;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Analyzing documents</div>
+    <div id="pill-phase" style="font-size:11.5px;color:#3B82F6;margin-top:2px">Starting…</div>
+  </div>
+  <div style="font-size:12px;font-weight:700;color:#0369A1;flex-shrink:0">Open →</div>
 </div>
-</body></html>
+
+</body>
+</html>

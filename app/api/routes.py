@@ -1,11 +1,14 @@
 import os
 import json
+import uuid
+from datetime import datetime
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from app.services.llm_provider import LocalProvider
 from app.services.export_service import generate_pdf, generate_docx
 from app.utils.parsers import extract_text
+from app.utils.project_name import extract_project_name
 import io
 
 router = APIRouter()
@@ -51,6 +54,21 @@ async def generate_document(files: List[UploadFile] = File(...), language: str =
         files_data.append({"filename": file.filename, "content": text})
     try:
         result = current_llm.generate_document(files_data, language=language)
+
+        # Inject human-readable project name into metadata
+        if "metadata" not in result:
+            result["metadata"] = {}
+        result["metadata"]["project_name"] = extract_project_name(result)
+
+        # Save to archive
+        os.makedirs(SAMPLES_DIR, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        short_id = uuid.uuid4().hex[:6]
+        archive_name = f"analysis_{timestamp}_{short_id}.json"
+        archive_path = os.path.join(SAMPLES_DIR, archive_name)
+        with open(archive_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
         return result
     except Exception as e:
         error_msg = str(e)

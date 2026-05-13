@@ -164,6 +164,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
                 "schema": {
                     "type": "object",
                     "properties": {
+                        "project_name":       {"type": "string"},
                         "project_overview":   {"type": "string"},
                         "goals":              {"type": "array",  "items": _FACT_ITEM},
                         "requirements":       {"type": "array",  "items": _FACT_ITEM},
@@ -175,7 +176,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
                         "risks":              {"type": "array",  "items": _FACT_ITEM}
                     },
                     "required": [
-                        "project_overview", "goals", "requirements",
+                        "project_name", "project_overview", "goals", "requirements",
                         "technical_solution", "architecture",
                         "team", "timeline", "budget", "risks"
                     ],
@@ -524,6 +525,7 @@ RULES:
 • For scalar fields (technical_solution, architecture, timeline, budget):
   - "text" must contain the ACTUAL VALUE, NOT a conflict description or goal statement.
   - copy the source of that value into "source".
+• project_name: short name of the project (2–6 words) exactly as it appears in the source documents (e.g. a heading, title field, or named reference). If no explicit name is found, derive a concise label from the overview. Never use a full sentence.
 • project_overview: write 1-2 sentences in Russian summarising what the project is about.
 • Output ONLY the JSON object — no markdown, no commentary.
 
@@ -580,6 +582,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             NON_DATA = {"нет данных", "no data", "данные отсутствуют", ""}
 
             result: dict = {
+                "project_name": "",
                 "project_overview": "",
                 **{k: [] for k in SCHEMA_FIELDS_LIST},
                 **{k: {"text": "Нет данных", "source": "",
@@ -590,6 +593,12 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             for d in dicts:
                 if not isinstance(d, dict) or "error" in d:
                     continue
+
+                # project_name — keep first useful one
+                if not result["project_name"]:
+                    pn = (d.get("project_name") or "").strip()
+                    if pn and pn.lower() not in NON_DATA and "<" not in pn:
+                        result["project_name"] = pn
 
                 # project_overview — keep first useful one
                 if not result["project_overview"]:
@@ -1678,6 +1687,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 return [txt(i) for i in arr if i]
 
             return {
+                "project_name":       (rich.get("project_name") or "").strip(),
                 "project_overview":   rich.get("project_overview", ""),
                 "goals":              lst(rich.get("goals")),
                 "requirements":       lst(rich.get("requirements")),

@@ -204,7 +204,7 @@ def generate_pdf(data: dict, language: str = "ru") -> bytes:
 
     # ── Cover page ───────────────────────────────────────────────────────
     story.append(Spacer(1, 60 * mm))
-    story.append(Paragraph("🧠 NeuralDocs AI", s_title))
+    story.append(Paragraph("NeuralDocs AI", s_title))
     story.append(Paragraph(L["title"], ParagraphStyle(
         "CoverTitle", parent=s_title, fontName=DEFAULT_FONT_BOLD, fontSize=20, textColor=_DARK,
     )))

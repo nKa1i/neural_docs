@@ -190,6 +190,10 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
-# Claude Code local config / skills
+# Claude Code local config / skills / plans
 .claude/
 .agent/
+.superpowers/
+CLAUDE.md
+CC-Session-Logs/
+docs/superpowers/
