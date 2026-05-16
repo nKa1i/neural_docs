@@ -665,6 +665,12 @@ kbd {
 </main>
 
 <script>
+// Session ID — persists across page reloads, scopes the archive to this browser
+if (!localStorage.getItem('nd_session_id')) {
+    localStorage.setItem('nd_session_id', crypto.randomUUID())
+}
+const SESSION_ID = localStorage.getItem('nd_session_id')
+
 /* ── Icon hydration ── */
 document.querySelectorAll('[data-icon]').forEach(slot => {
   const tpl = document.getElementById(slot.dataset.icon);
@@ -916,57 +922,81 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
   setPhase(0);  // Parsing starts
   setPipelineGhost('Parsing documents…');
 
-  let allScanned = false;
-  let reduceTimeout = null;
-  const progressInterval = setInterval(() => {
-    const pendingFiles = fileProgressState.filter(f => f.status === 'pending');
-    if (pendingFiles.length > 0) {
-      const nextFile = pendingFiles[0];
-      updateFileProgress(nextFile.name, 'processing');
-      setTimeout(() => {
-        updateFileProgress(nextFile.name, 'done', Math.floor(Math.random() * 500) + 200);
-        // When last file finishes scanning, advance to Mapping then Reducing
-        const stillPending = fileProgressState.filter(f => f.status === 'pending');
-        const stillProcessing = fileProgressState.filter(f => f.status === 'processing');
-        if (!allScanned && stillPending.length === 0 && stillProcessing.length === 0) {
-          allScanned = true;
-          setPhase(1);  // Mapping
-          setPipelineGhost('Mapping fields…');
-          reduceTimeout = setTimeout(() => { setPhase(2); setPipelineGhost('Reducing conflicts…'); }, 3000);
-        }
-      }, 800 + Math.random() * 1000);
-    }
-  }, 1500);
-
   const formData = new FormData();
   for (let i = 0; i < files.length; i++) formData.append('files', files[i]);
   formData.append('language', 'en');
 
+  // Phase-to-stepper mapping
+  const PHASE_TO_STEP = {
+    'Parsing files…': 0,
+    'Mapping documents…': 1,
+    'Reducing conflicts…': 2,
+    'Finalising…': 3
+  }
+
   try {
-    const resp = await fetch('/generate_document', { method: 'POST', body: formData });
-    clearInterval(progressInterval);
-    if (reduceTimeout) { clearTimeout(reduceTimeout); reduceTimeout = null; }
+    const resp = await fetch('/generate_document', {
+      method: 'POST',
+      body: formData,
+      headers: { 'X-Session-Id': SESSION_ID }
+    });
+
     if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.detail || 'Server error');
+      const err = await resp.json().catch(() => ({}));
+      clearPipelineGhost();
+      alert('Error: ' + (err.detail || 'Server error'));
+      go('upload');
+      return;
     }
-    const data = await resp.json();
-    allArchiveFiles = [];  // invalidate cache so archive reloads with new entry
-    setPhase(3);  // Finalizing — API returned, assembling output
-    setPipelineGhost('Finalizing…');
-    await new Promise(r => setTimeout(r, 600));  // brief pause so user sees Finalizing
-    clearPipelineGhost();
-    showResult(data, false);
-    // Refresh archive badge count
-    try {
-      const ar = await fetch('/api/samples');
-      const arData = await ar.json();
-      const el = document.getElementById('archive-tab-count');
-      if (el) el.textContent = arData.count ?? 0;
-    } catch (_) {}
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      // SSE events are separated by double newline
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();  // keep the incomplete trailing event
+
+      for (const part of parts) {
+        const lines = part.split('\n');
+        let eventType = '';
+        let eventData = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+          else if (line.startsWith('data: ')) eventData = line.slice(6);
+        }
+
+        if (eventType === 'phase') {
+          setPhase(PHASE_TO_STEP[eventData] ?? 0);
+          setPipelineGhost(eventData);
+        } else if (eventType === 'done') {
+          clearPipelineGhost();
+          const data = JSON.parse(eventData);
+          allArchiveFiles = [];  // invalidate cache so archive reloads with new entry
+          showResult(data, false);
+          // Refresh archive badge count
+          try {
+            const ar = await fetch('/api/samples', { headers: { 'X-Session-Id': SESSION_ID } });
+            const arData = await ar.json();
+            const el = document.getElementById('archive-tab-count');
+            if (el) el.textContent = arData.count ?? 0;
+          } catch (_) {}
+          return;
+        } else if (eventType === 'error') {
+          clearPipelineGhost();
+          alert('Error: ' + eventData);
+          go('upload');
+          return;
+        }
+      }
+    }
   } catch (err) {
-    clearInterval(progressInterval);
-    if (reduceTimeout) { clearTimeout(reduceTimeout); reduceTimeout = null; }
     clearPipelineGhost();
     alert('Error: ' + err.message);
     go('upload');
@@ -1002,7 +1032,7 @@ async function loadArchiveList() {
     renderArchiveGrid([]);
   }
   try {
-    const resp = await fetch('/api/samples');
+    const resp = await fetch('/api/samples', { headers: { 'X-Session-Id': SESSION_ID } });
     const data = await resp.json();
 
     if (!data.files || data.files.length === 0) {
@@ -1022,7 +1052,7 @@ async function loadArchiveList() {
     for (let i = 0; i < data.files.length; i += BATCH) {
       const batch = data.files.slice(i, i + BATCH);
       const results = await Promise.all(batch.map(name =>
-        fetch(`/api/samples/${name}`)
+        fetch(`/api/samples/${name}`, { headers: { 'X-Session-Id': SESSION_ID } })
           .then(r => r.json())
           .then(d => ({
             name,
@@ -1104,7 +1134,7 @@ function filterArchive() {
 async function loadSampleByName(filename) {
   if (!pipelineRunning) go('processing');
   try {
-    const resp = await fetch(`/api/samples/${encodeURIComponent(filename)}`);
+    const resp = await fetch(`/api/samples/${encodeURIComponent(filename)}`, { headers: { 'X-Session-Id': SESSION_ID } });
     if (!resp.ok) throw new Error('File not found');
     const data = await resp.json();
     showResult(data, true, filename);
@@ -1462,7 +1492,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 /* ── INIT: fetch archive count badge on load ── */
 (async function initArchiveCount() {
   try {
-    const resp = await fetch('/api/samples');
+    const resp = await fetch('/api/samples', { headers: { 'X-Session-Id': SESSION_ID } });
     const data = await resp.json();
     const el = document.getElementById('archive-tab-count');
     if (el) el.textContent = data.count ?? 0;
