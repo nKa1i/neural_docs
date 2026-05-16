@@ -49,7 +49,7 @@ if GROQ_API_KEY:
     # Cloud deployment: use Groq
     current_llm = LocalProvider(
         base_url="https://api.groq.com/openai/v1",
-        model_name=os.environ.get("LM_STUDIO_MODEL", "llama-3.3-70b-versatile"),
+        model_name=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
         api_key=GROQ_API_KEY
     )
 else:
