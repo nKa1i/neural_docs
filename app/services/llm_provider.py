@@ -85,17 +85,18 @@ class LocalProvider(LLMProvider):
 
         map_instruction = """\
 You are a structured fact extractor. Read the document chunk and output ONLY a JSON object \
-with the fields below. Include ONLY fields you find clear evidence for — omit the rest entirely.
+with the fields below. Each field value is an object {"text": "<fact>", "line": "<location>"} \
+or an array of such objects. Include ONLY fields you find clear evidence for — omit the rest entirely.
 
 {
-  "goals":              ["<project goal or objective — copy text exactly>"],
-  "requirements":       ["<functional or technical requirement — copy text exactly>"],
-  "technical_solution": "<programming languages, frameworks, engines, databases — copy exactly>",
-  "architecture":       "<system design, components, deployment — copy exactly>",
-  "team":               ["<any person, role, or team member mentioned — copy exactly>"],
-  "timeline":           "<any duration, deadline, or timeframe mentioned — copy exactly>",
-  "budget":             "<any monetary amount or cost mentioned — copy exactly>",
-  "risks":              ["<any risk, problem, or concern mentioned — copy exactly>"]
+  "goals":              [{"text": "<project goal or objective — copy text exactly>", "line": "<line number or page>"}],
+  "requirements":       [{"text": "<functional or technical requirement — copy text exactly>", "line": "<line number or page>"}],
+  "technical_solution": {"text": "<programming languages, frameworks, engines, databases — copy exactly>", "line": "<line number or page>"},
+  "architecture":       {"text": "<system design, components, deployment — copy exactly>", "line": "<line number or page>"},
+  "team":               [{"text": "<any person, role, or team member mentioned — copy exactly>", "line": "<line number or page>"}],
+  "timeline":           {"text": "<any duration, deadline, or timeframe mentioned — copy exactly>", "line": "<line number or page>"},
+  "budget":             {"text": "<any monetary amount or cost mentioned — copy exactly>", "line": "<line number or page>"},
+  "risks":              [{"text": "<any risk, problem, or concern mentioned — copy exactly>", "line": "<line number or page>"}]
 }
 
 Rules:
@@ -103,7 +104,10 @@ Rules:
 If the source text is in Russian — output Russian. \
 If the source text is in English — output English. \
 Never convert Russian words to English or English words to Russian.
-• If a field has no evidence in this chunk, output an empty string "" (for strings) or an empty array [] (for lists).
+• For each fact, cite the bracketed line number where you found it (e.g. [42]). Write only the digits in the "line" field (e.g. "42").
+• For PDFs the input uses "--- page N ---" markers — write "page N" in the "line" field (e.g. "page 3").
+• If you cannot identify a specific line or page, leave "line" as "".
+• If a field has no evidence in this chunk, output {"text": "", "line": ""} (for objects) or an empty array [] (for lists).
 • Output ONLY the JSON object — no markdown fences, no commentary.
 • IMPORTANT: If the chunk starts with [SOURCE CODE], only extract technical_solution \
 and architecture from it. Function names and method signatures are NOT goals or requirements."""
@@ -133,6 +137,16 @@ and architecture from it. Function names and method signatures are NOT goals or 
         #                  it (older LM Studio versions).
 
         # MAP schema: strict enforcement of fields
+        # Each item is an object with "text" (the fact) and "line" (source location).
+        _MAP_ITEM = {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "line": {"type": "string"}   # "42", "page 3", "§12", or ""
+            },
+            "required": ["text", "line"],
+            "additionalProperties": False
+        }
         _MAP_RESPONSE_FORMAT = {
             "type": "json_schema",
             "json_schema": {
@@ -141,14 +155,14 @@ and architecture from it. Function names and method signatures are NOT goals or 
                 "schema": {
                     "type": "object",
                     "properties": {
-                        "goals":              {"type": "array", "items": {"type": "string"}},
-                        "requirements":       {"type": "array", "items": {"type": "string"}},
-                        "technical_solution": {"type": "string"},
-                        "architecture":       {"type": "string"},
-                        "team":               {"type": "array", "items": {"type": "string"}},
-                        "timeline":           {"type": "string"},
-                        "budget":             {"type": "string"},
-                        "risks":              {"type": "array", "items": {"type": "string"}}
+                        "goals":              {"type": "array", "items": _MAP_ITEM},
+                        "requirements":       {"type": "array", "items": _MAP_ITEM},
+                        "technical_solution": _MAP_ITEM,
+                        "architecture":       _MAP_ITEM,
+                        "team":               {"type": "array", "items": _MAP_ITEM},
+                        "timeline":           _MAP_ITEM,
+                        "budget":             _MAP_ITEM,
+                        "risks":              {"type": "array", "items": _MAP_ITEM}
                     },
                     "required": [
                         "goals", "requirements", "technical_solution",
@@ -165,10 +179,11 @@ and architecture from it. Function names and method signatures are NOT goals or 
             "properties": {
                 "text":             {"type": "string"},
                 "source":           {"type": "string"},
+                "source_line":      {"type": "string"},
                 "has_conflict":     {"type": "boolean"},
                 "conflict_details": {"type": "string"}
             },
-            "required": ["text", "source", "has_conflict", "conflict_details"],
+            "required": ["text", "source", "source_line", "has_conflict", "conflict_details"],
             "additionalProperties": False
         }
 
@@ -237,10 +252,15 @@ and architecture from it. Function names and method signatures are NOT goals or 
                     return {}, 0
             tokens = resp.usage.total_tokens if resp.usage else 0
             parsed = _parse_map_output(resp.choices[0].message.content)
-            # Normalise: wrap accidental scalar in list where list is expected
+            # Normalise: wrap accidental scalar/dict in list where list is expected
             for key in SCHEMA_FIELDS_LIST:
-                if key in parsed and isinstance(parsed[key], str):
-                    parsed[key] = [parsed[key]]
+                if key in parsed:
+                    val = parsed[key]
+                    if isinstance(val, str):
+                        parsed[key] = [{"text": val, "line": ""}] if val.strip() else []
+                    elif isinstance(val, dict):
+                        # LLM returned a single object instead of a list
+                        parsed[key] = [val] if val.get("text", "").strip() else []
             return parsed, tokens
 
         def _map_one(f):
@@ -293,23 +313,35 @@ and architecture from it. Function names and method signatures are NOT goals or 
                 for key in SCHEMA_FIELDS_LIST:
                     if key in d and isinstance(d[key], list):
                         for item in d[key]:
-                            if item and str(item).strip():
-                                merged[key].append({"text": str(item), "source": src})
+                            if isinstance(item, dict):
+                                text = str(item.get("text", "")).strip()
+                                line = str(item.get("line", "")).strip()
+                            else:
+                                text = str(item).strip()
+                                line = ""
+                            if text:
+                                merged[key].append({"text": text, "source": src, "source_line": line})
                 for key in SCHEMA_FIELDS_SCALAR:
                     if key in d and d[key]:
                         val = d[key]
                         # MAP sometimes returns a list for a scalar field
                         # (e.g. when the model finds multiple values in the chunk).
                         # Join them into a single string rather than repr-ing the list.
-                        if isinstance(val, list):
+                        if isinstance(val, dict):
+                            line = str(val.get("line", "")).strip()
+                            val = str(val.get("text", "")).strip()
+                        elif isinstance(val, list):
+                            line = ""
                             val = "; ".join(
                                 str(v).strip() for v in val if str(v).strip()
                             )
-                        elif not isinstance(val, str):
-                            val = str(val)
+                        else:
+                            line = ""
+                            if not isinstance(val, str):
+                                val = str(val)
                         val = val.strip()
                         if val:
-                            merged[key].append({"text": val, "source": src})
+                            merged[key].append({"text": val, "source": src, "source_line": line})
 
         # ── Change 4: Regex pre-extraction ────────────────────────────────────
         # Scan every file's parsed text with regex patterns for the three fields
@@ -381,7 +413,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
                     # Skip if it's clearly not a monetary value (e.g. plain word from бюджет: line)
                     if not re.search(r"\d", val):
                         continue
-                    merged["budget"].append({"text": val, "source": fname})
+                    merged["budget"].append({"text": val, "source": fname, "source_line": ""})
                     already_in_merged["budget"].add(norm)
 
             # Timeline
@@ -391,7 +423,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
                     norm = re.sub(r"\s+", " ", val.lower())
                     if norm in already_in_merged["timeline"] or len(val) < 3:
                         continue
-                    merged["timeline"].append({"text": val, "source": fname})
+                    merged["timeline"].append({"text": val, "source": fname, "source_line": ""})
                     already_in_merged["timeline"].add(norm)
 
             # Team
@@ -408,7 +440,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
                     norm = re.sub(r"\s+", " ", val.lower())
                     if norm in already_in_merged["team"] or len(val) < 4:
                         continue
-                    merged["team"].append({"text": val, "source": fname})
+                    merged["team"].append({"text": val, "source": fname, "source_line": ""})
                     already_in_merged["team"].add(norm)
 
         # ── Python conflict detection (deterministic) ─────────────────────────
@@ -473,7 +505,9 @@ and architecture from it. Function names and method signatures are NOT goals or 
         fact_lines = []
         for key in SCHEMA_FIELDS_LIST + SCHEMA_FIELDS_SCALAR:
             for e in merged[key]:
-                fact_lines.append(f"{key} | {e['source']} | {e['text']}")
+                sl = e.get("source_line", "")
+                line_tag = f" [line {sl}]" if sl else ""
+                fact_lines.append(f"{key} | {e['source']}{line_tag} | {e['text']}")
         all_extracted_facts = "\n".join(fact_lines)   # kept for hallucination check corpus
 
         # ── Change 3: Hierarchical REDUCE ─────────────────────────────────────
@@ -491,14 +525,14 @@ and architecture from it. Function names and method signatures are NOT goals or 
 
         json_template = """{
   "project_overview": "<1-2 sentence summary in English of what the project is>",
-  "goals":        [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
-  "requirements": [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
-  "technical_solution": {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
-  "architecture":       {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
-  "team":    [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
-  "timeline":     {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
-  "budget":       {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
-  "risks":   [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}]
+  "goals":        [{"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""}],
+  "requirements": [{"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""}],
+  "technical_solution": {"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""},
+  "architecture":       {"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""},
+  "team":    [{"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""}],
+  "timeline":     {"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""},
+  "budget":       {"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""},
+  "risks":   [{"text": "<fact text>", "source": "<source>", "source_line": "", "has_conflict": false, "conflict_details": ""}]
 }"""
 
         def _build_reduce_instruction(facts_text: str, include_conflicts: bool = True) -> str:
@@ -506,6 +540,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
             return f"""You are a strict JSON generator. Fill the template below using ONLY the FACTS provided.
 
 FACTS format — each line: FIELD | source | value
+(Each fact may also carry a source_line — copy it verbatim into the output "source_line" field. Do not invent line numbers. If source_line is "", output "".)
 
 FIELD CLASSIFICATION (follow strictly):
 • goals = HIGH-LEVEL business outcomes the project wants to achieve. Example: "Build a unified platform", "Improve operational efficiency".
@@ -591,7 +626,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 "project_name": "",
                 "project_overview": "",
                 **{k: [] for k in SCHEMA_FIELDS_LIST},
-                **{k: {"text": "No data", "source": "",
+                **{k: {"text": "No data", "source": "", "source_line": "",
                        "has_conflict": False, "conflict_details": ""}
                    for k in SCHEMA_FIELDS_SCALAR},
             }
@@ -899,7 +934,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             """
             if not isinstance(data, dict):
                 return
-            EMPTY_SCALAR = {"text": "No data", "source": "",
+            EMPTY_SCALAR = {"text": "No data", "source": "", "source_line": "",
                             "has_conflict": False, "conflict_details": ""}
 
             for key in SCHEMA_FIELDS_SCALAR:
@@ -917,10 +952,10 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                         (v.get("source", "") for v in val if isinstance(v, dict) and v.get("source")),
                         ""
                     )
-                    data[key] = {"text": joined or "No data", "source": src,
+                    data[key] = {"text": joined or "No data", "source": src, "source_line": "",
                                  "has_conflict": False, "conflict_details": ""}
                 elif isinstance(val, str):
-                    data[key] = {"text": val.strip() or "No data", "source": "",
+                    data[key] = {"text": val.strip() or "No data", "source": "", "source_line": "",
                                  "has_conflict": False, "conflict_details": ""}
                 # else: already a dict — leave it
 
@@ -929,7 +964,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 if val is None:
                     data[key] = []
                 elif isinstance(val, str):
-                    data[key] = [{"text": val.strip(), "source": "",
+                    data[key] = [{"text": val.strip(), "source": "", "source_line": "",
                                   "has_conflict": False, "conflict_details": ""}] if val.strip() else []
                 elif isinstance(val, list):
                     normalized = []
@@ -937,7 +972,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                         if isinstance(item, dict):
                             normalized.append(item)
                         elif isinstance(item, str) and item.strip():
-                            normalized.append({"text": item.strip(), "source": "",
+                            normalized.append({"text": item.strip(), "source": "", "source_line": "",
                                                "has_conflict": False, "conflict_details": ""})
                     data[key] = normalized
                 # else: leave as-is (already a list of dicts)
@@ -1006,6 +1041,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
 
             def _make_fact(entry):
                 return {"text": entry["text"], "source": entry["source"],
+                        "source_line": entry.get("source_line", ""),
                         "has_conflict": False, "conflict_details": ""}
 
             # Scalar fields: inject best merged value when REDUCE said "No data"
