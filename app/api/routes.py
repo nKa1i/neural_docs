@@ -1,7 +1,7 @@
 import os
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -62,7 +62,7 @@ async def generate_document(files: List[UploadFile] = File(...), language: str =
 
         # Save to archive
         os.makedirs(SAMPLES_DIR, exist_ok=True)
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         short_id = uuid.uuid4().hex[:6]
         archive_name = f"analysis_{timestamp}_{short_id}.json"
         archive_path = os.path.join(SAMPLES_DIR, archive_name)
@@ -73,9 +73,9 @@ async def generate_document(files: List[UploadFile] = File(...), language: str =
     except Exception as e:
         error_msg = str(e)
         if "Connection error" in error_msg or "ConnectError" in error_msg:
-            detail_msg = f"Не удалось подключиться к локальному серверу LM Studio по адресу {LOCAL_PC_IP}."
+            detail_msg = f"Could not connect to LM Studio at {LOCAL_PC_IP}. Is it running?"
         else:
-            detail_msg = f"Ошибка обработки: {error_msg}"
+            detail_msg = f"Processing error: {error_msg}"
         raise HTTPException(status_code=500, detail=detail_msg)
 
 
