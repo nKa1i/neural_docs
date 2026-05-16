@@ -29,7 +29,7 @@ class LocalProvider(LLMProvider):
             pass
         return "local-model"
 
-    def generate_document(self, files_data: list[dict], language: str = "en", on_phase=None) -> dict:
+    def generate_document(self, files_data: list[dict], language: str = "en", on_phase=None, on_file=None) -> dict:
         def emit(phase: str):
             if on_phase:
                 on_phase(phase)
@@ -271,10 +271,14 @@ and architecture from it. Function names and method signatures are NOT goals or 
             return f["filename"], file_dicts, total_tokens
 
         # ── Run MAP sequentially (avoids OOM on CPU inference) ────────────────
-        max_workers = 1
         emit("Mapping documents…")
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            map_results = list(pool.map(_map_one, files_data))
+        map_results = []
+        total_files = len(files_data)
+        for i, f in enumerate(files_data):
+            result = _map_one(f)
+            map_results.append(result)
+            if on_file:
+                on_file(result[0], i + 1, total_files)
 
         emit("Reducing conflicts…")
         # ── Python merge: combine all chunk dicts ─────────────────────────────

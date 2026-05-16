@@ -1011,6 +1011,9 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         if (eventType === 'phase') {
           setPhase(PHASE_TO_STEP[eventData] ?? 0);
           setPipelineGhost(eventData);
+        } else if (eventType === 'file_progress') {
+          const { filename } = JSON.parse(eventData);
+          updateFileProgress(filename, 'done');
         } else if (eventType === 'done') {
           clearPipelineGhost();
           const data = JSON.parse(eventData);

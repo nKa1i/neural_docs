@@ -1,19 +1,52 @@
 # NeuralDocs AI
-Status: v2 validated, UX polish Sprint 1+2+3+4 shipped
-Date: 2026-05-13
+Status: Public release shipped (Groq + LM Studio dual-mode, SSE, llm-guard, session archive). Awaiting Railway deploy.
+Date: 2026-05-16
 
 ## Approach
-NeuralDocs AI is an Applied LLM / RAG application that extracts structured project specifications from chaotic documents (PDFs, code, docs) using a local LLM via LM Studio. It automatically detects contradictions across files.
+NeuralDocs AI is an Applied LLM / RAG application that extracts structured project specifications from chaotic documents (PDFs, code, docs) using either **Groq cloud LLM** (public demo) or **LM Studio local LLM** (self-hosted). It automatically detects contradictions across files. Output is always in English regardless of source language.
 
 ## Current Structure
-- `app/api/` (API Routes)
-- `app/services/` (LLM logic, sanitizer, export)
+- `app/api/routes.py` (FastAPI routes — SSE `/generate_document`, session-scoped archive)
+- `app/services/` (`llm_provider.py` MAP-REDUCE, `sanitizer.py`, `export_service.py`)
 - `app/utils/` (Document parsers + `project_name.py` extractor)
-- `app/frontend/index.html` (single-file SPA — v2 design)
-- `main.py` (FastAPI Entrypoint)
-- `tests/dummy_data/` (Sample data files)
-- `tests/test_project_name_extraction.py` (pytest unit tests)
-- `docs/` (Schemas, etc.)
+- `app/frontend/index.html` (single-file SPA — SSE reader, no timers)
+- `main.py` (FastAPI entrypoint + 24h session cleanup task)
+- `tests/test_public_release.py` (security scan, get_session_dir, model auto-detect tests)
+- `tests/test_project_name_extraction.py`
+- `tests/dummy_data/{session_id}/` (per-session archive folders, 24h TTL)
+- `railway.toml` + `Dockerfile` (deploy config)
+- `docs/superpowers/specs/`, `docs/superpowers/plans/`
+
+## Session Notes (2026-05-16) — Public Release
+
+### Phase/Status Changes
+- **Public release scope shipped** (9 tasks, 11 commits, all spec+quality reviewed): Groq integration, LM Studio model auto-detect, llm-guard prompt injection protection, session-based archive with 24h cleanup, SSE streaming backend + frontend (timers DELETED), full English output, conflict resolved-state persistence, Railway/Dockerfile config + README.
+- Plan: `docs/superpowers/plans/2026-05-16-public-release.md`. Spec: `docs/superpowers/specs/2026-05-16-public-release-design.md`.
+- All 14 tests pass.
+
+### Key Decisions / Insights
+| Decision | Rationale |
+|---|---|
+| Provider selection via `GROQ_API_KEY` env var (routes.py) | If set → Groq with `llama-3.3-70b-versatile`; else → LM Studio with `model_name=None` (auto-detect via `/v1/models`). `LocalProvider.__init__` now accepts `api_key` param. |
+| `_get_loaded_model()` queries LM Studio at request time | Avoids hardcoding model name. Falls back to `"local-model"` if `/v1/models` fails. Resolved once per pipeline run, threaded through closures as local `model` var. |
+| llm-guard: `BanSubstrings` substituted for `PromptInjection` on Python 3.14 | `PromptInjection` needs `transformers==4.38.2` which segfaults on Py 3.14. `BanSubstrings` with 7 phrase blocklist gives deterministic injection protection. Swap back to `PromptInjection()` in `routes.py` when Docker (Py 3.11) is used. |
+| Session archive: `tests/dummy_data/{session_id}/` | Frontend generates UUID v4 in `localStorage('nd_session_id')`, sends as `X-Session-Id` header. Backend's `get_session_dir(request)` validates UUID regex (`^[a-f0-9-]{36}$`) and falls back to `"default"` on invalid input — blocks path traversal. |
+| 24h cleanup: `@app.on_event("startup")` in main.py | Async task wakes hourly, `shutil.rmtree`s subdirs older than 86400s. Deprecated decorator but functional; lifespan migration is future work. |
+| SSE: `loop.run_in_executor()` + `asyncio.Queue` + `call_soon_threadsafe()` | LLM pipeline is sync (uses ThreadPoolExecutor for MAP). On_phase callback bridges sync thread → async generator via thread-safe queue puts. 0.5s drain timeout. |
+| All frontend timers DELETED (`progressInterval`, `reduceTimeout`, `setInterval`, nested `setTimeout`) | Replaced by SSE event-driven `setPhase(PHASE_TO_STEP[eventData])` + `setPipelineGhost(eventData)`. PHASE_TO_STEP: `{Parsing: 0, Mapping: 1, Reducing: 2, Finalising: 3}`. Eliminates Sprint 4 stale-timer bug class entirely. |
+| Conflict resolved-state in `currentRawData.document_extended[key].resolved` | `markConflictResolved()` writes `resolved=true` via `window._activeConflictKey/_activeConflictIdx`. `makeFact`/`makeFactList` skip resolved items. Badge count derived from `countUnresolvedConflicts()`, not DOM. Ephemeral (lost on reload) — archive JSON persistence is future work. |
+| English output: `_lang_rule` + Cyrillic detection (`_doc_is_russian`) DELETED from `llm_provider.py` | REDUCE prompt always says "Output in English, translate naturally if source is another language". MAP stays language-agnostic. All Russian fallback strings (`"Нет данных"`, `"данные отсутствуют"`, etc.) → English equivalents. NON_DATA / NON_DATA_LC sets are English-only. |
+
+### Next Steps
+1. **Push + Deploy:** `git push origin main` → Railway: create project → set `GROQ_API_KEY` → deploy → add live URL to README.md placeholder.
+2. **Swap `BanSubstrings` → `PromptInjection()` in `routes.py`** once running on Docker/Py 3.11 (gives ML-based detection vs phrase blocklist).
+3. **Lifespan migration:** `@app.on_event("startup")` is deprecated in FastAPI 0.95+ — migrate to `lifespan=` context manager.
+4. **Conflict resolved-state archive persistence:** Currently in-memory only. Persist to archive JSON if cross-session continuity desired.
+5. **Rebuff** as a second security layer (vector DB of attack patterns + LLM classifier) — deferred from this release.
+6. **Wire disabled checkboxes** ("Deep conflict scan", "Cite passages") once backend params are defined.
+7. **⌘K command palette / header search** when reintroduced (was removed in Sprint 4).
+
+---
 
 ## Session Notes (2026-05-13)
 

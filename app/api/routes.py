@@ -111,40 +111,51 @@ async def generate_document(
 ):
     session_dir = get_session_dir(request)
 
+    # Read all file contents before streaming starts — UploadFile handles
+    # close once the SSE response begins yielding.
+    files_data_pre = []
+    for file in files:
+        content = await file.read()
+        files_data_pre.append((file.filename, content))
+
     async def event_stream():
         try:
             # Phase 1: Parse files and run security scan
             yield _sse("phase", "Parsing files…")
             files_data = []
-            for file in files:
-                content = await file.read()
-                text = extract_text(file.filename, content)
+            for filename, content in files_data_pre:
+                text = extract_text(filename, content)
 
                 # Security scan — before any LLM call
                 sanitized, results_valid, _ = scan_prompt(INPUT_SCANNERS, text)
                 if not all(results_valid.values()):
-                    yield _sse("error", f"File '{file.filename}' failed security scan. Upload rejected.")
+                    yield _sse("error", f"File '{filename}' failed security scan. Upload rejected.")
                     return
 
-                files_data.append({"filename": file.filename, "content": sanitized})
+                files_data.append({"filename": filename, "content": sanitized})
 
-            # Run LLM pipeline in thread pool — yields phase events via callback
+            # Run LLM pipeline in thread pool — yields phase/file events via callbacks
             loop = asyncio.get_event_loop()
             phase_queue: asyncio.Queue = asyncio.Queue()
 
             def on_phase(phase: str):
-                loop.call_soon_threadsafe(phase_queue.put_nowait, phase)
+                loop.call_soon_threadsafe(phase_queue.put_nowait, ("phase", phase))
+
+            def on_file(filename: str, done: int, total: int):
+                import json as _json
+                payload = _json.dumps({"filename": filename, "done": done, "total": total})
+                loop.call_soon_threadsafe(phase_queue.put_nowait, ("file_progress", payload))
 
             future = loop.run_in_executor(
                 None,
-                lambda: current_llm.generate_document(files_data, language, on_phase)
+                lambda: current_llm.generate_document(files_data, language, on_phase, on_file)
             )
 
-            # Drain phase updates while the LLM pipeline runs
+            # Drain phase/file events while the LLM pipeline runs
             while not future.done():
                 try:
-                    phase = await asyncio.wait_for(phase_queue.get(), timeout=0.5)
-                    yield _sse("phase", phase)
+                    event_type, event_data = await asyncio.wait_for(phase_queue.get(), timeout=0.5)
+                    yield _sse(event_type, event_data)
                 except asyncio.TimeoutError:
                     continue
 
