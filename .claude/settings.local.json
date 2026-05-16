@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python generate_finetune.py)",
-      "Bash(python setup_v2.py)",
-      "Bash(python -c ':*)"
-    ]
-  }
-}
