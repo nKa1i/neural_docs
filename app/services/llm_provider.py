@@ -523,7 +523,7 @@ FIELD CLASSIFICATION (follow strictly):
 
 RULES:
 • Use ONLY the facts listed. Never invent or paraphrase beyond the given text.
-• Output all text in English. If source text is in another language, translate it naturally into English.
+• Output ALL text in English — every field, every list item, every string value. If source text is in any other language (Russian, Kazakh, etc.), translate it naturally into English. No exceptions: goals, requirements, team, risks, technical_solution, architecture, timeline, budget must all be in English.
 • If a field has no facts, write "No data" in "text" and "" in "source".
 • Never leave "text" as an empty string "".
 • For list fields (goals, requirements, team, risks): one item per unique fact. DEDUPLICATE: if two facts say the same thing in different languages, keep only the more detailed one.
