@@ -18,6 +18,7 @@ class LocalProvider(LLMProvider):
     def __init__(self, base_url: str, model_name: str = None, api_key: str = "lm-studio-local"):
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.model_name = model_name  # None = auto-detect via /v1/models
+        self._provider_label = "Groq" if "groq.com" in base_url else "Local GPU"
 
     def _get_loaded_model(self) -> str:
         """Query LM Studio /v1/models and return the first loaded model ID."""
@@ -1710,7 +1711,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             "document":          spec_document,    # spec-compliant plain strings/lists
             "document_extended": parsed_data,       # rich {text,source,has_conflict,...} for UI
             "metadata": {
-                "model_name": f"Local GPU Map-Reduce ({model})",
+                "model_name": f"{self._provider_label} Map-Reduce ({model})",
                 "llm_calls": len(files_data) + 1,
                 "total_tokens": total_tokens_used,
                 "duration_ms": duration_ms,

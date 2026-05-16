@@ -2,18 +2,11 @@ import os
 import shutil
 import time
 import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.api.routes import router
 
-app = FastAPI()
-app.include_router(router)
-
 SAMPLES_DIR = os.path.join(os.getcwd(), "tests/dummy_data")
-
-
-@app.on_event("startup")
-async def start_cleanup():
-    asyncio.create_task(_cleanup_old_sessions())
 
 
 async def _cleanup_old_sessions():
@@ -25,3 +18,20 @@ async def _cleanup_old_sessions():
             for entry in os.scandir(SAMPLES_DIR):
                 if entry.is_dir() and entry.stat().st_mtime < cutoff:
                     shutil.rmtree(entry.path, ignore_errors=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: launch the 24h session cleanup background task
+    task = asyncio.create_task(_cleanup_old_sessions())
+    yield
+    # Shutdown: cancel the cleanup task cleanly
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(lifespan=lifespan)
+app.include_router(router)
