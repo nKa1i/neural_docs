@@ -15,11 +15,27 @@ class LLMProvider:
 
 # --- ЛОКАЛЬНЫЙ ПРОВАЙДЕР С ЖЕСТКОЙ ДЕТЕРМИНИРОВАННОСТЬЮ ---
 class LocalProvider(LLMProvider):
-    def __init__(self, base_url: str, model_name: str = "meta-llama-3-8b-instruct"):
-        self.client = OpenAI(base_url=base_url, api_key="lm-studio-local")
-        self.model_name = model_name
+    def __init__(self, base_url: str, model_name: str = None, api_key: str = "lm-studio-local"):
+        self.client = OpenAI(base_url=base_url, api_key=api_key)
+        self.model_name = model_name  # None = auto-detect via /v1/models
 
-    def generate_document(self, files_data: list[dict], language: str = "ru") -> dict:
+    def _get_loaded_model(self) -> str:
+        """Query LM Studio /v1/models and return the first loaded model ID."""
+        try:
+            models = self.client.models.list()
+            if models.data:
+                return models.data[0].id
+        except Exception:
+            pass
+        return "local-model"
+
+    def generate_document(self, files_data: list[dict], language: str = "en", on_phase=None) -> dict:
+        def emit(phase: str):
+            if on_phase:
+                on_phase(phase)
+
+        # Resolve model name — auto-detect from LM Studio if not set at init
+        model = self.model_name if self.model_name else self._get_loaded_model()
         start_time = time.time()
         total_tokens_used = 0
 
@@ -42,7 +58,7 @@ class LocalProvider(LLMProvider):
                 }
             }
             self.client.chat.completions.create(
-                model=self.model_name,
+                model=model,
                 messages=[{"role": "user", "content": "ok"}],
                 response_format=_warmup_schema,
                 temperature=0.0,
@@ -193,7 +209,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
             try:
                 # Attempt with response format first
                 resp = self.client.chat.completions.create(
-                    model=self.model_name,
+                    model=model,
                     messages=[
                         {"role": "system", "content": map_instruction},
                         {"role": "user",   "content": f"File: {filename}\n\n{numbered}"}
@@ -206,7 +222,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
                 print(f"Warning: Map schema rejected for {filename}, retrying without schema...")
                 try:
                     resp = self.client.chat.completions.create(
-                        model=self.model_name,
+                        model=model,
                         messages=[
                             {"role": "system", "content": map_instruction},
                             {"role": "user",   "content": f"File: {filename}\n\n{numbered}"}
@@ -532,7 +548,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             try:
                 # Attempt with response format first
                 resp = self.client.chat.completions.create(
-                    model=self.model_name,
+                    model=model,
                     messages=messages,
                     response_format=_REDUCE_RESPONSE_FORMAT,
                     temperature=0.0
@@ -543,7 +559,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 print("Warning: Reduce schema rejected, retrying without schema...")
                 try:
                     resp = self.client.chat.completions.create(
-                        model=self.model_name,
+                        model=model,
                         messages=messages,
                         temperature=0.0
                     )
@@ -1687,7 +1703,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             "document":          spec_document,    # spec-compliant plain strings/lists
             "document_extended": parsed_data,       # rich {text,source,has_conflict,...} for UI
             "metadata": {
-                "model_name": f"Local GPU Map-Reduce ({self.model_name})",
+                "model_name": f"Local GPU Map-Reduce ({model})",
                 "llm_calls": len(files_data) + 1,
                 "total_tokens": total_tokens_used,
                 "duration_ms": duration_ms,

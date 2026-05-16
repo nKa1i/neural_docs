@@ -14,9 +14,23 @@ import io
 router = APIRouter()
 
 SAMPLES_DIR = os.path.join(os.getcwd(), "tests/dummy_data")
-LOCAL_PC_IP  = os.environ.get("LM_STUDIO_HOST",  "host.docker.internal")
-LM_MODEL     = os.environ.get("LM_STUDIO_MODEL", "qwen/qwen2.5-v1-7b")
-current_llm  = LocalProvider(base_url=f"http://{LOCAL_PC_IP}:1234/v1", model_name=LM_MODEL)
+LOCAL_PC_IP   = os.environ.get("LM_STUDIO_HOST", "host.docker.internal")
+GROQ_API_KEY  = os.environ.get("GROQ_API_KEY")
+
+if GROQ_API_KEY:
+    # Cloud deployment: use Groq
+    current_llm = LocalProvider(
+        base_url="https://api.groq.com/openai/v1",
+        model_name=os.environ.get("LM_STUDIO_MODEL", "llama-3.3-70b-versatile"),
+        api_key=GROQ_API_KEY
+    )
+else:
+    # Self-hosted: LM Studio with auto-detect
+    current_llm = LocalProvider(
+        base_url=f"http://{LOCAL_PC_IP}:1234/v1",
+        model_name=None,  # auto-detected via /v1/models
+        api_key="lm-studio-local"
+    )
 
 @router.get("/api/samples")
 async def list_samples():
