@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import json
@@ -68,6 +69,10 @@ def get_session_dir(request: Request) -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
+def _sse(event: str, data: str) -> str:
+    """Format a Server-Sent Event string."""
+    return f"event: {event}\ndata: {data}\n\n"
+
 
 @router.get("/api/samples")
 async def list_samples(request: Request):
@@ -99,37 +104,74 @@ async def main_page():
         return HTMLResponse(content=f.read())
 
 @router.post("/generate_document")
-async def generate_document(files: List[UploadFile] = File(...), language: str = Form("ru")):
-    files_data = []
-    for file in files:
-        content = await file.read()
-        text = extract_text(file.filename, content)
-        files_data.append({"filename": file.filename, "content": text})
-    try:
-        result = current_llm.generate_document(files_data, language=language)
+async def generate_document(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    language: str = Form("en")
+):
+    session_dir = get_session_dir(request)
 
-        # Inject human-readable project name into metadata
-        if "metadata" not in result:
-            result["metadata"] = {}
-        result["metadata"]["project_name"] = extract_project_name(result)
+    async def event_stream():
+        try:
+            # Phase 1: Parse files and run security scan
+            yield _sse("phase", "Parsing files…")
+            files_data = []
+            for file in files:
+                content = await file.read()
+                text = extract_text(file.filename, content)
 
-        # Save to archive
-        os.makedirs(SAMPLES_DIR, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        short_id = uuid.uuid4().hex[:6]
-        archive_name = f"analysis_{timestamp}_{short_id}.json"
-        archive_path = os.path.join(SAMPLES_DIR, archive_name)
-        with open(archive_path, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+                # Security scan — before any LLM call
+                sanitized, results_valid, _ = scan_prompt(INPUT_SCANNERS, text)
+                if not all(results_valid.values()):
+                    yield _sse("error", f"File '{file.filename}' failed security scan. Upload rejected.")
+                    return
 
-        return result
-    except Exception as e:
-        error_msg = str(e)
-        if "Connection error" in error_msg or "ConnectError" in error_msg:
-            detail_msg = f"Could not connect to LM Studio at {LOCAL_PC_IP}. Is it running?"
-        else:
-            detail_msg = f"Processing error: {error_msg}"
-        raise HTTPException(status_code=500, detail=detail_msg)
+                files_data.append({"filename": file.filename, "content": sanitized})
+
+            # Run LLM pipeline in thread pool — yields phase events via callback
+            loop = asyncio.get_event_loop()
+            phase_queue: asyncio.Queue = asyncio.Queue()
+
+            def on_phase(phase: str):
+                loop.call_soon_threadsafe(phase_queue.put_nowait, phase)
+
+            future = loop.run_in_executor(
+                None,
+                lambda: current_llm.generate_document(files_data, language, on_phase)
+            )
+
+            # Drain phase updates while the LLM pipeline runs
+            while not future.done():
+                try:
+                    phase = await asyncio.wait_for(phase_queue.get(), timeout=0.5)
+                    yield _sse("phase", phase)
+                except asyncio.TimeoutError:
+                    continue
+
+            result = await future
+
+            # Inject project_name metadata
+            if "metadata" not in result:
+                result["metadata"] = {}
+            result["metadata"]["project_name"] = extract_project_name(result)
+
+            # Save to session archive
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            short_id = uuid.uuid4().hex[:6]
+            archive_path = os.path.join(session_dir, f"analysis_{timestamp}_{short_id}.json")
+            with open(archive_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+
+            yield _sse("done", json.dumps(result, ensure_ascii=False))
+
+        except Exception as e:
+            error_msg = str(e)
+            if "Connection error" in error_msg or "ConnectError" in error_msg:
+                yield _sse("error", f"Could not connect to LM Studio at {LOCAL_PC_IP}. Is it running?")
+            else:
+                yield _sse("error", f"Processing error: {error_msg}")
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/export/pdf")

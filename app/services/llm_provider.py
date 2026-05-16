@@ -272,9 +272,11 @@ and architecture from it. Function names and method signatures are NOT goals or 
 
         # ── Run MAP sequentially (avoids OOM on CPU inference) ────────────────
         max_workers = 1
+        emit("Mapping documents…")
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             map_results = list(pool.map(_map_one, files_data))
 
+        emit("Reducing conflicts…")
         # ── Python merge: combine all chunk dicts ─────────────────────────────
         # List fields → extend; scalar fields → collect all distinct values
         # (multiple distinct budget/timeline values = conflict evidence)
@@ -664,6 +666,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             raw_content = None          # signal: use partial_dicts path
             _partial_raw_list = partial_dicts  # stash for post-helper use
 
+        emit("Finalising…")
         end_time = time.time()
         duration_ms = int((end_time - start_time) * 1000)
 
