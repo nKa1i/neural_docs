@@ -453,13 +453,6 @@ and architecture from it. Function names and method signatures are NOT goals or 
                 fact_lines.append(f"{key} | {e['source']} | {e['text']}")
         all_extracted_facts = "\n".join(fact_lines)   # kept for hallucination check corpus
 
-        # ── Detect document language from extracted facts ──────────────────────
-        # Count Cyrillic vs total alpha characters across all facts.
-        # If ≥ 15% of letters are Cyrillic the project docs are primarily Russian.
-        _cyr_count   = sum(1 for c in all_extracted_facts if '\u0400' <= c <= '\u04ff')
-        _alpha_count = sum(1 for c in all_extracted_facts if c.isalpha())
-        _doc_is_russian = _alpha_count > 0 and (_cyr_count / _alpha_count) >= 0.15
-
         # ── Change 3: Hierarchical REDUCE ─────────────────────────────────────
         # If the merged fact list fits in one REDUCE call → single pass (fast).
         # If it overflows (large projects like 11_omnicore_platform) → split into
@@ -474,7 +467,7 @@ and architecture from it. Function names and method signatures are NOT goals or 
             conflict_hints += f"\nTIMELINE CONFLICT: {timeline_detail}"
 
         json_template = """{
-  "project_overview": "<1-2 sentence summary in Russian of what the project is>",
+  "project_overview": "<1-2 sentence summary in English of what the project is>",
   "goals":        [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
   "requirements": [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}],
   "technical_solution": {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
@@ -484,16 +477,6 @@ and architecture from it. Function names and method signatures are NOT goals or 
   "budget":       {"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""},
   "risks":   [{"text": "<fact text>", "source": "<source>", "has_conflict": false, "conflict_details": ""}]
 }"""
-
-        _lang_rule = (
-            "• ⚠️ ЯЗЫК / LANGUAGE: Исходные документы на русском языке.\n"
-            "  - project_overview: пишите на русском языке.\n"
-            "  - Все остальные поля: копируйте текст ТОЧНО как в источнике.\n"
-            "    Русский текст → оставляйте русским. English technical terms → оставляйте английскими.\n"
-            "  - ЗАПРЕЩЕНО переводить русский текст на английский язык."
-            if _doc_is_russian else
-            "• Copy text EXACTLY as it appears in the source language. Do not translate."
-        )
 
         def _build_reduce_instruction(facts_text: str, include_conflicts: bool = True) -> str:
             hints = conflict_hints if include_conflicts else ""
@@ -518,15 +501,16 @@ FIELD CLASSIFICATION (follow strictly):
 
 RULES:
 • Use ONLY the facts listed. Never invent or paraphrase beyond the given text.
-{_lang_rule}
-• If a field has no facts, write "Нет данных" in "text" and "" in "source".
+• Output all text in English. If source text is in another language, translate it naturally into English.
+• project_overview: write 1–2 sentences in English summarising what the project is about.
+• If a field has no facts, write "No data" in "text" and "" in "source".
 • Never leave "text" as an empty string "".
 • For list fields (goals, requirements, team, risks): one item per unique fact. DEDUPLICATE: if two facts say the same thing in different languages, keep only the more detailed one.
 • For scalar fields (technical_solution, architecture, timeline, budget):
   - "text" must contain the ACTUAL VALUE, NOT a conflict description or goal statement.
   - copy the source of that value into "source".
 • project_name: short name of the project (2–6 words) exactly as it appears in the source documents (e.g. a heading, title field, or named reference). If no explicit name is found, derive a concise label from the overview. Never use a full sentence.
-• project_overview: write 1-2 sentences in Russian summarising what the project is about.
+• project_overview: write 1–2 sentences in English summarising what the project is about.
 • Output ONLY the JSON object — no markdown, no commentary.
 
 CONFLICT HINTS (pre-detected by the system):{hints if hints else " none"}
@@ -579,13 +563,13 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             List fields are concatenated; scalar fields take the first non-empty
             value (conflicts are stamped by the Python detection step later).
             """
-            NON_DATA = {"нет данных", "no data", "данные отсутствуют", ""}
+            NON_DATA = {"no data", "not specified", "data not found", "not available", ""}
 
             result: dict = {
                 "project_name": "",
                 "project_overview": "",
                 **{k: [] for k in SCHEMA_FIELDS_LIST},
-                **{k: {"text": "Нет данных", "source": "",
+                **{k: {"text": "No data", "source": "",
                        "has_conflict": False, "conflict_details": ""}
                    for k in SCHEMA_FIELDS_SCALAR},
             }
@@ -720,8 +704,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     return False
                 # Skip generic fallback phrases — those are always "valid"
                 low = text.lower()
-                if ('отсутству' in low or 'нет данных' in low
-                        or 'no data' in low or 'not found' in low):
+                if ('no data' in low or 'not found' in low or 'not specified' in low):
                     return True
                 # Long words (≥4 chars)
                 words = re.findall(r'[а-яёa-z0-9]{4,}', text.lower())
@@ -736,7 +719,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 return
             if 'text' in obj and 'source' in obj:
                 if not has_overlap(obj.get('text', '')):
-                    obj['text'] = 'Данные отсутствуют'
+                    obj['text'] = 'No data'
                     obj['source'] = ''
                     obj['has_conflict'] = False
                     obj['conflict_details'] = ''
@@ -782,12 +765,12 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             conflicting = all_nums - tl_nums
             if tl_nums and conflicting:
                 if not timeline.get('has_conflict'):
-                    other_vals = ', '.join(str(n) + ' мес.' for n in sorted(conflicting))
-                    tl_val = ', '.join(str(n) + ' мес.' for n in sorted(tl_nums))
+                    other_vals = ', '.join(str(n) + ' mo.' for n in sorted(conflicting))
+                    tl_val = ', '.join(str(n) + ' mo.' for n in sorted(tl_nums))
                     timeline['has_conflict'] = True
                     timeline['conflict_details'] = (
-                        f"Конфликт сроков: timeline — {tl_val}; "
-                        f"другие поля — {other_vals}"
+                        f"Timeline conflict: timeline — {tl_val}; "
+                        f"other fields — {other_vals}"
                     )
 
         # ── Multi-stage JSON repair ───────────────────────────────────────────
@@ -893,7 +876,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             """
             if not isinstance(data, dict):
                 return
-            EMPTY_SCALAR = {"text": "Нет данных", "source": "",
+            EMPTY_SCALAR = {"text": "No data", "source": "",
                             "has_conflict": False, "conflict_details": ""}
 
             for key in SCHEMA_FIELDS_SCALAR:
@@ -911,10 +894,10 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                         (v.get("source", "") for v in val if isinstance(v, dict) and v.get("source")),
                         ""
                     )
-                    data[key] = {"text": joined or "Нет данных", "source": src,
+                    data[key] = {"text": joined or "No data", "source": src,
                                  "has_conflict": False, "conflict_details": ""}
                 elif isinstance(val, str):
-                    data[key] = {"text": val.strip() or "Нет данных", "source": "",
+                    data[key] = {"text": val.strip() or "No data", "source": "",
                                  "has_conflict": False, "conflict_details": ""}
                 # else: already a dict — leave it
 
@@ -949,7 +932,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 _sanitize_hallucinations(parsed_data, all_extracted_facts)
                 _check_cross_field_timeline(parsed_data)
             except Exception:
-                parsed_data = {"error": "Llama 3 вернула невалидный JSON", "raw_output": raw_content}
+                parsed_data = {"error": "Llama 3 returned invalid JSON", "raw_output": raw_content}
         else:
             # ── Hierarchical-REDUCE path — parse partials and merge ───────────
             parsed_partials = []
@@ -965,7 +948,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 _normalize_parsed(parsed_data)
                 _check_cross_field_timeline(parsed_data)
             else:
-                parsed_data = {"error": "Llama 3 вернула невалидный JSON во всех частях", "raw_output": str(_partial_raw_list)}
+                parsed_data = {"error": "Llama 3 returned invalid JSON in all parts", "raw_output": str(_partial_raw_list)}
 
         # ── Python-guaranteed post-processing ─────────────────────────────────
         # The REDUCE model sometimes writes "No data" for fields the MAP step
@@ -981,7 +964,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     return True
                 if isinstance(val, dict):
                     t = (val.get("text") or "").strip().lower()
-                    if t in ("", "no data", "данные отсутствуют", "нет данных"):
+                    if t in ("", "no data", "not specified", "not mentioned", "not found"):
                         return True
                     if re.match(r"^not\s+(?:specified|mentioned|found|available|provided)\b", t):
                         return True
@@ -991,7 +974,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                         _is_empty(i) for i in val
                     )
                 t = str(val).strip().lower()
-                if t in ("", "no data", "данные отсутствуют", "нет данных"):
+                if t in ("", "no data", "not specified", "not mentioned", "not found"):
                     return True
                 # "Not specified in the provided facts." and similar REDUCE fallbacks
                 if re.match(r"^not\s+(?:specified|mentioned|found|available|provided)\b", t):
@@ -1012,10 +995,9 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 if merged[key] and _is_empty(parsed_data.get(key)):
                     parsed_data[key] = [_make_fact(e) for e in merged[key]]
 
-            # Strip "Данные отсутствуют" / "Нет данных" placeholder items that
+            # Strip "No data" / "No data" placeholder items that
             # sometimes slip into list fields alongside real values
-            NON_DATA_LC = {"данные отсутствуют", "нет данных", "no data",
-                           "not specified", "not mentioned", "not found",
+            NON_DATA_LC = {"no data", "not specified", "not mentioned", "not found",
                            "not specified in the provided facts.", ""}
             for key in SCHEMA_FIELDS_LIST:
                 items = parsed_data.get(key)
@@ -1061,7 +1043,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                         if merged[key]:
                             parsed_data[key] = _make_fact(merged[key][0])
                         else:
-                            fld["text"] = "Нет данных"
+                            fld["text"] = "No data"
 
             # Team: remove entries that look like spec/API descriptions rather
             # than actual people, and pure numbers leaked from config.json.
@@ -1200,7 +1182,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                             _fld["text"]   = _strip_line_num(_best["text"])
                             _fld["source"] = _best["source"]
                         else:
-                            _fld["text"]   = "Нет данных"
+                            _fld["text"]   = "No data"
                             _fld["source"] = ""
 
             # Budget text cleanup: if the model stored a Python-list repr or
@@ -1335,7 +1317,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                         _arch["text"]   = _strip_line_num(_best_arch["text"])
                         _arch["source"] = _best_arch["source"]
                     else:
-                        _arch["text"]   = "Нет данных"
+                        _arch["text"]   = "No data"
                         _arch["source"] = ""
 
             # Rule 4: Risks — drop bare ADR headers (e.g. "ADR-001: Timeline
@@ -1526,9 +1508,9 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 _lines = re.split(r'[\n;]+', _txt)
                 _lines = [l.strip() for l in _lines if l.strip() and len(l.strip()) > 10]
                 if len(_lines) > 5:
-                    _fld['text'] = '; '.join(_lines[:5]) + f' (и ещё {len(_lines)-5} пунктов)'
+                    _fld['text'] = '; '.join(_lines[:5]) + f' (and {len(_lines)-5} more items)'
 
-            # ── Filter garbage "Нет данных" entries from list fields ──────────
+            # ── Filter garbage "No data" entries from list fields ──────────
             for _key in SCHEMA_FIELDS_LIST:
                 _items = parsed_data.get(_key)
                 if not isinstance(_items, list):
@@ -1537,7 +1519,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     r for r in _items
                     if isinstance(r, dict)
                     and (r.get('text') or '').strip().lower()
-                    not in {'риск-менеджмента нет данных', 'нет данных', 'no data', ''}
+                    not in {'no data', 'not specified', 'not mentioned', ''}
                 ]
 
             # ── Source backfill for SCALAR fields ──────────────────────────────
@@ -1548,10 +1530,10 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 if not isinstance(_fld, dict):
                     continue
                 _src = (_fld.get('source') or '').strip()
-                if _src and _src.lower() != 'нет данных':
+                if _src and _src.lower() != 'no data':
                     continue  # already has a real source
                 _ftxt = (_fld.get('text') or '').strip().lower()
-                if not _ftxt or _ftxt == 'нет данных':
+                if not _ftxt or _ftxt == 'no data':
                     continue
                 # Find best match in merged by word overlap
                 _fld_words = _significant_words(_ftxt)
@@ -1571,8 +1553,8 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     # If word overlap fails, just use the first merged entry's source
                     _fld['source'] = merged[_key][0].get('source', '')
 
-            # ── Replace "Нет данных" source strings ───────────────────────────
-            # The LLM sometimes writes "Нет данных" as source instead of leaving
+            # ── Replace "No data" source strings ───────────────────────────
+            # The LLM sometimes writes "No data" as source instead of leaving
             # it empty. Replace with actual source from merged[] where possible.
             for _key in SCHEMA_FIELDS_LIST:
                 _items = parsed_data.get(_key)
@@ -1582,7 +1564,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                     if not isinstance(_item, dict):
                         continue
                     _src = (_item.get('source') or '').strip()
-                    if _src.lower() not in {'нет данных', 'нет источника', 'no source'}:
+                    if _src.lower() not in {'no data', 'no source'}:
                         continue
                     _item['source'] = ''  # Clear placeholder
                     # Try to backfill from merged
@@ -1714,9 +1696,9 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
             },
             "trace": {
                 "steps": [
-                    "Парсинг файлов",
-                    f"Map: Извлечение фактов (обработано файлов: {len(files_data)})",
-                    "Reduce: Сборка JSON"
+                    "Parsing files",
+                    f"Map: Extracting facts (files processed: {len(files_data)})",
+                    "Reduce: Building JSON"
                 ]
             }
         }
