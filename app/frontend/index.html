@@ -892,17 +892,53 @@ function closeModalOnOverlay(e) {
   if (e.target === e.currentTarget) closeConflictModal();
 }
 
+function countUnresolvedConflicts(data) {
+  if (!data) return 0;
+  const doc = data.document_extended || data.document || {};
+  let count = 0;
+  for (const key of Object.keys(doc)) {
+    const val = doc[key];
+    if (Array.isArray(val)) {
+      val.forEach(item => {
+        if (item && item.has_conflict && !item.resolved) count++;
+      });
+    } else if (val && val.has_conflict && !val.resolved) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function updateConflictBadge() {
+  const count = countUnresolvedConflicts(currentRawData);
+  const conflictStat = document.getElementById('conflict-count-stat');
+  if (conflictStat) {
+    conflictStat.textContent = count;
+    conflictStat.style.color = count > 0 ? '#B45309' : '#15803D';
+  }
+}
+
 function markConflictResolved() {
   if (window._activeConflictEl) {
-    window._activeConflictEl.style.display = 'none';
-    // Decrement conflict count in stats strip
-    const conflictStat = document.querySelector('#stats-strip div:nth-child(2) .text-\\[30px\\]');
-    if (conflictStat) {
-      const n = Math.max(0, parseInt(conflictStat.textContent, 10) - 1);
-      conflictStat.textContent = n;
-      if (n === 0) conflictStat.style.color = '#15803D';
+    // Write resolved=true to currentRawData so state persists across tab switches
+    if (currentRawData) {
+      const doc = currentRawData.document_extended || currentRawData.document || {};
+      const key = window._activeConflictKey;
+      const idx = window._activeConflictIdx;
+      if (key !== undefined && key !== null) {
+        const field = doc[key];
+        if (Array.isArray(field) && idx !== undefined && idx !== null) {
+          if (field[idx]) field[idx].resolved = true;
+        } else if (field && typeof field === 'object') {
+          field.resolved = true;
+        }
+      }
     }
+    window._activeConflictEl.style.display = 'none';
+    updateConflictBadge();
     window._activeConflictEl = null;
+    window._activeConflictKey = null;
+    window._activeConflictIdx = null;
   }
   closeConflictModal();
 }
@@ -1273,8 +1309,12 @@ function renderResults(data) {
   }
 
   window._activeConflictEl = null;
-  window.showConflictFromData = function(conflictDetails, fieldLabel, triggerEl) {
+  window._activeConflictKey = null;
+  window._activeConflictIdx = null;
+  window.showConflictFromData = function(conflictDetails, fieldLabel, triggerEl, fieldKey, itemIndex) {
     window._activeConflictEl = triggerEl || null;
+    window._activeConflictKey = fieldKey !== undefined ? fieldKey : null;
+    window._activeConflictIdx = itemIndex !== undefined ? itemIndex : null;
     const sources   = parseConflictDetails(conflictDetails);
     const modal     = document.getElementById('conflict-modal');
     const container = document.getElementById('diff-container');
@@ -1288,7 +1328,7 @@ function renderResults(data) {
     modal.style.display = 'flex';
   };
 
-  const makeFact = (fact, fieldName = '') => {
+  const makeFact = (fact, fieldName = '', fieldKey = '', itemIndex = undefined) => {
     if (typeof fact === 'string') {
       return fact && fact.length > 1 && !fact.includes('отсутству')
         ? `<span>${fact}</span>`
@@ -1302,11 +1342,13 @@ function renderResults(data) {
       return `<span style="color:var(--text-muted);font-style:italic;">${t.no_data}</span>`;
     }
     let html = `<span>${fact.text}</span><span class="source-badge">${fact.source || '—'}</span>`;
-    if (fact.has_conflict) {
+    if (fact.has_conflict && !fact.resolved) {
       const escapedDetails = JSON.stringify(fact.conflict_details).replace(/'/g, "&#39;");
       const escapedLabel   = JSON.stringify(fieldName).replace(/'/g, "&#39;");
+      const escapedKey     = JSON.stringify(fieldKey).replace(/'/g, "&#39;");
+      const idxArg         = itemIndex !== undefined ? `, ${itemIndex}` : '';
       html += `
-        <div class="conflict-inline" onclick='showConflictFromData(${escapedDetails}, ${escapedLabel}, this)'>
+        <div class="conflict-inline" onclick='showConflictFromData(${escapedDetails}, ${escapedLabel}, this, ${escapedKey}${idxArg})'>
           <span style="flex-shrink:0;font-size:14px;margin-top:1px">⚠️</span>
           <div>
             <strong>${t.conflict_click}</strong>
@@ -1318,23 +1360,23 @@ function renderResults(data) {
     return html;
   };
 
-  const makeFactList = (items) => {
+  const makeFactList = (items, fieldKey = '') => {
     if (!items || items.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
-    const nonEmpty = items.filter(item => {
+    const nonEmpty = items.map((item, idx) => ({ item, idx })).filter(({ item }) => {
       if (typeof item === 'string') return item.trim().length > 0;
       if (typeof item === 'object' && item !== null) {
         const hasText   = (item.text || '').trim().length > 0;
         const hasSource = item.source && !item.source.includes('файл.txt');
-        return hasText || hasSource || item.has_conflict;
+        return hasText || hasSource || (item.has_conflict && !item.resolved);
       }
       return false;
     });
     if (nonEmpty.length === 0) return `<p style="color:var(--text-muted);font-style:italic;">${t.no_data}</p>`;
-    return `<ul>${nonEmpty.map(item => `<li>${makeFact(item)}</li>`).join('')}</ul>`;
+    return `<ul>${nonEmpty.map(({ item, idx }) => `<li>${makeFact(item, fieldKey, fieldKey, idx)}</li>`).join('')}</ul>`;
   };
 
-  /* Conflict banner */
-  const conflictsCount = meta.conflicts_found || 0;
+  /* Conflict banner — counts unresolved only (data-driven) */
+  const conflictsCount = countUnresolvedConflicts(data);
   let conflictBannerHtml = '';
   if (conflictsCount > 0) {
     const fieldLabels = {
@@ -1345,12 +1387,12 @@ function renderResults(data) {
     const conflictItems = [];
     ['timeline','budget','technical_solution','architecture'].forEach(key => {
       const f = doc[key];
-      if (f && f.has_conflict && f.conflict_details)
+      if (f && f.has_conflict && !f.resolved && f.conflict_details)
         conflictItems.push(`<li><strong>${fieldLabels[key]}:</strong> ${f.conflict_details}</li>`);
     });
     ['goals','requirements','team','risks'].forEach(key => {
       (doc[key] || []).forEach((f, i) => {
-        if (f && f.has_conflict && f.conflict_details)
+        if (f && f.has_conflict && !f.resolved && f.conflict_details)
           conflictItems.push(`<li><strong>${fieldLabels[key]} [${i+1}]:</strong> ${f.conflict_details}</li>`);
       });
     });
@@ -1374,7 +1416,7 @@ function renderResults(data) {
       </div>
       <div class="p-5 border-r border-[#E2E8F0]">
         <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8]">Conflicts found</div>
-        <div class="mt-2 text-[30px] font-extrabold leading-none" style="letter-spacing:-0.02em;color:${conflictsCount > 0 ? '#B45309' : '#15803D'}">${conflictsCount}</div>
+        <div id="conflict-count-stat" class="mt-2 text-[30px] font-extrabold leading-none" style="letter-spacing:-0.02em;color:${conflictsCount > 0 ? '#B45309' : '#15803D'}">${conflictsCount}</div>
       </div>
       <div class="p-5 border-r border-[#E2E8F0]">
         <div class="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#94A3B8]">Tokens used</div>
@@ -1387,18 +1429,18 @@ function renderResults(data) {
   }
 
   container.innerHTML = conflictBannerHtml + `
-    <div class="result-section fade-in"><h3>${t.project_overview}</h3><p>${makeFact(doc.project_overview, t.project_overview)}</p></div>
-    <div class="result-section fade-in"><h3>${t.goals}</h3>${makeFactList(doc.goals)}</div>
-    <div class="result-section fade-in"><h3>${t.requirements}</h3>${makeFactList(doc.requirements)}</div>
-    <div class="result-section fade-in"><h3>${t.technical_solution}</h3><p>${makeFact(doc.technical_solution, t.technical_solution)}</p></div>
-    <div class="result-section fade-in"><h3>${t.architecture}</h3><p>${makeFact(doc.architecture, t.architecture)}</p></div>
-    <div class="result-section fade-in"><h3>${t.team}</h3>${makeFactList(doc.team)}</div>
+    <div class="result-section fade-in"><h3>${t.project_overview}</h3><p>${makeFact(doc.project_overview, t.project_overview, 'project_overview')}</p></div>
+    <div class="result-section fade-in"><h3>${t.goals}</h3>${makeFactList(doc.goals, 'goals')}</div>
+    <div class="result-section fade-in"><h3>${t.requirements}</h3>${makeFactList(doc.requirements, 'requirements')}</div>
+    <div class="result-section fade-in"><h3>${t.technical_solution}</h3><p>${makeFact(doc.technical_solution, t.technical_solution, 'technical_solution')}</p></div>
+    <div class="result-section fade-in"><h3>${t.architecture}</h3><p>${makeFact(doc.architecture, t.architecture, 'architecture')}</p></div>
+    <div class="result-section fade-in"><h3>${t.team}</h3>${makeFactList(doc.team, 'team')}</div>
     <div class="result-section fade-in">
       <h3>${t.timeline} &amp; ${t.budget}</h3>
-      <p><strong>${t.timeline}:</strong> ${makeFact(doc.timeline, t.timeline)}</p>
-      <p><strong>${t.budget}:</strong> ${makeFact(doc.budget, t.budget)}</p>
+      <p><strong>${t.timeline}:</strong> ${makeFact(doc.timeline, t.timeline, 'timeline')}</p>
+      <p><strong>${t.budget}:</strong> ${makeFact(doc.budget, t.budget, 'budget')}</p>
     </div>
-    <div class="result-section fade-in"><h3>${t.risks}</h3>${makeFactList(doc.risks)}</div>
+    <div class="result-section fade-in"><h3>${t.risks}</h3>${makeFactList(doc.risks, 'risks')}</div>
   `;
 
   document.getElementById('meta-content').innerHTML = `
