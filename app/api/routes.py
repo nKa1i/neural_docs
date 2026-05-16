@@ -1,16 +1,19 @@
 import asyncio
 import os
+import pathlib
 import re
 import json
 import uuid
 import shutil
 import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from app.services.llm_provider import LocalProvider
 from app.services.export_service import generate_pdf, generate_docx
+from app.services.sanitizer import sanitize_result
 from app.utils.parsers import extract_text
 from app.utils.project_name import extract_project_name
 import io
@@ -44,6 +47,33 @@ except Exception:
 router = APIRouter()
 
 SAMPLES_DIR = os.path.join(os.getcwd(), "tests/dummy_data")
+
+# ── File upload limits ────────────────────────────────────────────────────────
+ALLOWED_EXTENSIONS = {
+    ".txt", ".pdf", ".docx",
+    ".py", ".js", ".ts", ".jsx", ".tsx",
+    ".java", ".go", ".rs", ".cpp", ".c", ".h",
+    ".md", ".json", ".yaml", ".yml", ".toml",
+    ".csv", ".html", ".css",
+}
+MAX_FILE_BYTES  = 10 * 1024 * 1024   # 10 MB per file
+MAX_TOTAL_BYTES = 30 * 1024 * 1024   # 30 MB across all files
+MAX_FILES       = 10
+
+# ── Per-session rate limiter (in-memory, resets on redeploy) ─────────────────
+_rate_limit_store: dict = defaultdict(list)
+RATE_LIMIT_MAX    = 5
+RATE_LIMIT_WINDOW = 3600  # seconds
+
+def _check_rate_limit(session_id: str) -> bool:
+    """Return True if allowed, False if rate limit exceeded."""
+    now    = time.time()
+    cutoff = now - RATE_LIMIT_WINDOW
+    _rate_limit_store[session_id] = [t for t in _rate_limit_store[session_id] if t > cutoff]
+    if len(_rate_limit_store[session_id]) >= RATE_LIMIT_MAX:
+        return False
+    _rate_limit_store[session_id].append(now)
+    return True
 LOCAL_PC_IP   = os.environ.get("LM_STUDIO_HOST", "host.docker.internal")
 GROQ_API_KEY  = os.environ.get("GROQ_API_KEY")
 
@@ -131,6 +161,14 @@ async def generate_document(
 ):
     session_dir = get_session_dir(request)
 
+    # ── Rate limit check ──────────────────────────────────────────────────────
+    session_id_header = request.headers.get("X-Session-Id", "default")
+    if not _check_rate_limit(session_id_header):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Max 5 analyses per hour per session."
+        )
+
     # Read all file contents before streaming starts — UploadFile handles
     # close once the SSE response begins yielding.
     files_data_pre = []
@@ -138,12 +176,33 @@ async def generate_document(
         content = await file.read()
         files_data_pre.append((file.filename, content))
 
+    # ── File count + size guards (before streaming) ───────────────────────────
+    if len(files_data_pre) > MAX_FILES:
+        raise HTTPException(status_code=400,
+                            detail=f"Too many files. Maximum is {MAX_FILES} per request.")
+    total_bytes = sum(len(c) for _, c in files_data_pre)
+    for fname, content in files_data_pre:
+        if len(content) > MAX_FILE_BYTES:
+            raise HTTPException(status_code=400,
+                                detail=f"File '{fname}' exceeds the 10 MB size limit.")
+    if total_bytes > MAX_TOTAL_BYTES:
+        raise HTTPException(status_code=400,
+                            detail="Total upload size exceeds the 30 MB limit.")
+
     async def event_stream():
         try:
             # Phase 1: Parse files and run security scan
             yield _sse("phase", "Parsing files…")
             files_data = []
             for filename, content in files_data_pre:
+                # ── File type whitelist ───────────────────────────────────────
+                ext = pathlib.Path(filename).suffix.lower()
+                if ext not in ALLOWED_EXTENSIONS:
+                    yield _sse("error",
+                               f"File type '{ext}' is not supported. "
+                               f"Allowed: PDF, DOCX, TXT, and common code/config files.")
+                    return
+
                 text = extract_text(filename, content)
 
                 # Security scan — before any LLM call
@@ -195,6 +254,7 @@ async def generate_document(
                 json.dump(result, f, ensure_ascii=False, indent=2)
 
             result["_archive_filename"] = archive_filename
+            result = sanitize_result(result)
             yield _sse("done", json.dumps(result, ensure_ascii=False))
 
         except Exception as e:
