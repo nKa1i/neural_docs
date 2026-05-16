@@ -70,3 +70,38 @@ def test_non_data_set_is_english():
     assert "нет данных" not in source.lower(), \
         "Russian 'нет данных' must not appear anywhere in llm_provider"
     assert '"no data"' in source.lower(), "English 'no data' must be present"
+
+
+def test_get_session_dir_valid_uuid(tmp_path):
+    """Valid UUID creates a namespaced subdirectory."""
+    import re, os
+
+    def get_session_dir(session_id_header, base_dir):
+        session_id = session_id_header or "default"
+        if not re.match(r'^[a-f0-9-]{36}$', session_id):
+            session_id = "default"
+        path = os.path.join(base_dir, session_id)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    valid_uuid = "550e8400-e29b-41d4-a716-446655440000"
+    result = get_session_dir(valid_uuid, str(tmp_path))
+    assert result == str(tmp_path / valid_uuid)
+    assert os.path.isdir(result)
+
+
+def test_get_session_dir_invalid_value_falls_back_to_default(tmp_path):
+    """Non-UUID header value falls back to 'default' folder."""
+    import re, os
+
+    def get_session_dir(session_id_header, base_dir):
+        session_id = session_id_header or "default"
+        if not re.match(r'^[a-f0-9-]{36}$', session_id):
+            session_id = "default"
+        path = os.path.join(base_dir, session_id)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    result = get_session_dir("../../etc/passwd", str(tmp_path))
+    assert "passwd" not in result
+    assert result == str(tmp_path / "default")

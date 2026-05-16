@@ -1,6 +1,9 @@
 import os
+import re
 import json
 import uuid
+import shutil
+import time
 from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Request
@@ -56,21 +59,33 @@ else:
         api_key="lm-studio-local"
     )
 
+def get_session_dir(request: Request) -> str:
+    """Return a session-scoped archive subdirectory, creating it if needed."""
+    session_id = request.headers.get("X-Session-Id", "default")
+    if not re.match(r'^[a-f0-9-]{36}$', session_id):
+        session_id = "default"
+    path = os.path.join(SAMPLES_DIR, session_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 @router.get("/api/samples")
-async def list_samples():
+async def list_samples(request: Request):
     """Return sorted list of available pre-generated JSON samples."""
-    if not os.path.isdir(SAMPLES_DIR):
-        return JSONResponse({"files": [], "dir": SAMPLES_DIR})
-    files = sorted(f for f in os.listdir(SAMPLES_DIR) if f.endswith(".json"))
+    session_dir = get_session_dir(request)
+    if not os.path.isdir(session_dir):
+        return JSONResponse({"files": [], "dir": session_dir})
+    files = sorted(f for f in os.listdir(session_dir) if f.endswith(".json"))
     return JSONResponse({"files": files, "count": len(files)})
 
 @router.get("/api/samples/{filename}")
-async def get_sample(filename: str):
+async def get_sample(filename: str, request: Request):
     """Return the content of one sample JSON."""
     # Security: only allow simple filenames, no path traversal
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    path = os.path.join(SAMPLES_DIR, filename)
+    session_dir = get_session_dir(request)
+    path = os.path.join(session_dir, filename)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="File not found")
     with open(path, encoding="utf-8") as f:
