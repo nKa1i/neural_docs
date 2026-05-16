@@ -100,6 +100,24 @@ async def get_sample(filename: str, request: Request):
 
 
 
+@router.patch("/api/samples/{filename}")
+async def update_sample(filename: str, request: Request):
+    """Overwrite an archive file with updated content (e.g. resolved conflict state)."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    session_dir = get_session_dir(request)
+    path = os.path.join(session_dir, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return JSONResponse({"ok": True})
+
+
 @router.get("/")
 async def main_page():
     with open("app/frontend/index.html", encoding="utf-8") as f:
@@ -171,10 +189,12 @@ async def generate_document(
             # Save to session archive
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             short_id = uuid.uuid4().hex[:6]
-            archive_path = os.path.join(session_dir, f"analysis_{timestamp}_{short_id}.json")
+            archive_filename = f"analysis_{timestamp}_{short_id}.json"
+            archive_path = os.path.join(session_dir, archive_filename)
             with open(archive_path, "w", encoding="utf-8") as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
 
+            result["_archive_filename"] = archive_filename
             yield _sse("done", json.dumps(result, ensure_ascii=False))
 
         except Exception as e:

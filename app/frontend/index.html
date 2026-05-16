@@ -748,6 +748,7 @@ function clearAllFiles() {
 
 /* ── STATE ── */
 let currentRawData = null;
+let currentArchiveFilename = null;
 let allArchiveFiles = [];
 let archiveLoading = false;
 let viewerMode = false;
@@ -926,6 +927,14 @@ function markConflictResolved() {
     window._activeConflictEl = null;
     window._activeConflictKey = null;
     window._activeConflictIdx = null;
+    // Persist resolved state to archive JSON (fire-and-forget)
+    if (currentArchiveFilename && currentRawData) {
+      fetch(`/api/samples/${currentArchiveFilename}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-Session-Id': SESSION_ID },
+        body: JSON.stringify(currentRawData)
+      }).catch(e => console.warn('Could not persist resolved state:', e));
+    }
   }
   closeConflictModal();
 }
@@ -1004,6 +1013,7 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
         } else if (eventType === 'done') {
           clearPipelineGhost();
           const data = JSON.parse(eventData);
+          currentArchiveFilename = data._archive_filename || null;
           allArchiveFiles = [];  // invalidate cache so archive reloads with new entry
           showResult(data, false);
           // Refresh archive badge count
@@ -1158,6 +1168,7 @@ function filterArchive() {
 }
 
 async function loadSampleByName(filename) {
+  currentArchiveFilename = filename;
   if (!pipelineRunning) go('processing');
   try {
     const resp = await fetch(`/api/samples/${encodeURIComponent(filename)}`, { headers: { 'X-Session-Id': SESSION_ID } });
