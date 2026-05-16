@@ -485,24 +485,23 @@ and architecture from it. Function names and method signatures are NOT goals or 
 FACTS format — each line: FIELD | source | value
 
 FIELD CLASSIFICATION (follow strictly):
-• goals = HIGH-LEVEL business outcomes the project wants to achieve. Example: "Создание единой платформы", "Повышение эффективности".
+• goals = HIGH-LEVEL business outcomes the project wants to achieve. Example: "Build a unified platform", "Improve operational efficiency".
   - Do NOT put technical quality attributes here (scalability, reliability, performance, throughput, durability).
   - Do NOT put specific functional features here (they go into requirements).
-• requirements = SPECIFIC functional capabilities the system must support. Example: "Поддержка 45 валют", "AI churn prediction".
-  - If the same requirement appears in two languages (English + Russian), keep ONLY the more detailed version.
+• requirements = SPECIFIC functional capabilities the system must support. Example: "Support 45 currencies", "AI churn prediction".
+  - If the same requirement appears in two languages, keep ONLY the more detailed version.
 • technical_solution = Programming languages, frameworks, databases, and tools used. Example: "Go, Python, Java, PostgreSQL, Kafka, Redis, Kubernetes".
   - Do NOT put scalability/reliability goals here.
 • architecture = System design: services, components, deployment topology, security layers. Summarize in 2-3 sentences.
   - Do NOT dump raw config or 10+ lines of bullet points.
-• team = Named people with roles, or team size numbers. Example: "Денис Краснов (Главный архитектор)", "11 backend разработчиков".
-• timeline = Project duration and key dates. Example: "20 месяцев, релиз август 2026".
-• budget = Total project cost. Example: "$4,200,000" or "30 000 000 тенге".
+• team = Named people with roles, or team size numbers. Example: "Denis Krasnov (Lead Architect)", "11 backend developers".
+• timeline = Project duration and key dates. Example: "20 months, release August 2026".
+• budget = Total project cost. Example: "$4,200,000" or "30,000,000 tenge".
 • risks = Business, technical, or regulatory risks.
 
 RULES:
 • Use ONLY the facts listed. Never invent or paraphrase beyond the given text.
 • Output all text in English. If source text is in another language, translate it naturally into English.
-• project_overview: write 1–2 sentences in English summarising what the project is about.
 • If a field has no facts, write "No data" in "text" and "" in "source".
 • Never leave "text" as an empty string "".
 • For list fields (goals, requirements, team, risks): one item per unique fact. DEDUPLICATE: if two facts say the same thing in different languages, keep only the more detailed one.
@@ -995,7 +994,7 @@ TEMPLATE (replace every <fact text>/<source> with real values from FACTS):
                 if merged[key] and _is_empty(parsed_data.get(key)):
                     parsed_data[key] = [_make_fact(e) for e in merged[key]]
 
-            # Strip "No data" / "No data" placeholder items that
+            # Strip "No data" / "not specified" placeholder items that
             # sometimes slip into list fields alongside real values
             NON_DATA_LC = {"no data", "not specified", "not mentioned", "not found",
                            "not specified in the provided facts.", ""}
