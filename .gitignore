@@ -191,8 +191,13 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 # Claude Code local config / skills / plans
+.claude
 .claude/
+.agent
 .agent/
+.pi
+.pi/
+.superpowers
 .superpowers/
 CLAUDE.md
 CC-Session-Logs/
